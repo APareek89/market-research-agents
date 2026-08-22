@@ -19,6 +19,7 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
   const [exporting, setExporting] = useState('')
   const controllers = useRef({})           // convKey -> AbortController (viewer stream only)
   const stopFlags = useRef({})             // convKey -> stop requested before real id known
+  const lastPayload = useRef({})           // convKey -> {msg, files} of the last send (for Retry)
   const reattached = useRef(false)
   const fileRef = useRef(null)
   const bottomRef = useRef(null)
@@ -124,21 +125,35 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
 
   async function send() {
     if (running || (!input.trim() && files.length === 0)) return
+    const msg = input.trim()
+    const sendFiles = files
+    setInput('')
+    setFiles([])
+    await sendPayload(msg, sendFiles, false)
+  }
+
+  function retry() {
+    const p = lastPayload.current[activeConv]
+    if (!p || running) return
+    // The user bubble is already in the thread from the failed attempt.
+    sendPayload(p.msg, p.files, true)
+  }
+
+  async function sendPayload(msgText, sendFiles, isRetry) {
     setError('')
     // A brand-new chat gets a temp key until the server assigns the real conversation id.
     let convKey = activeConv
     if (convKey === 'new') {
       convKey = `tmp-${crypto.randomUUID().slice(0, 8)}`
       setActiveConv(convKey)
-      setConvos((c) => [{ id: convKey, title: input.trim().slice(0, 60) || 'New research', created_at: new Date().toISOString() }, ...c])
+      setConvos((c) => [{ id: convKey, title: msgText.slice(0, 60) || 'New research', created_at: new Date().toISOString() }, ...c])
     }
     const serverConvId = convKey.startsWith('tmp-') ? '' : convKey
-    const userText = input.trim() + (files.length ? `\n📎 ${files.map((f) => f.name).join(', ')}` : '')
-    const sendFiles = files
-    const msgText = input.trim()
-    setChats((c) => ({ ...c, [convKey]: [...(c[convKey] || []), { role: 'user', content: userText }] }))
-    setInput('')
-    setFiles([])
+    const userText = msgText + (sendFiles.length ? `\n📎 ${sendFiles.map((f) => f.name).join(', ')}` : '')
+    lastPayload.current[convKey] = { msg: msgText, files: sendFiles }
+    if (!isRetry) {
+      setChats((c) => ({ ...c, [convKey]: [...(c[convKey] || []), { role: 'user', content: userText }] }))
+    }
     const controller = new AbortController()
     controllers.current[convKey] = controller
     setRuns((r) => ({ ...r, [convKey]: { status: 'running', plan: null, done: 0, fileCount: sendFiles.length } }))
@@ -162,6 +177,10 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
             key = realId
             controllers.current[realId] = controllers.current[oldKey]
             delete controllers.current[oldKey]
+            if (lastPayload.current[oldKey]) {
+              lastPayload.current[realId] = lastPayload.current[oldKey]
+              delete lastPayload.current[oldKey]
+            }
             setChats((c) => renameKey(c, oldKey, realId))
             setRuns((r) => renameKey(r, oldKey, realId))
             setConvos((c) => c.map((x) => (x.id === oldKey ? { ...x, id: realId } : x)))
@@ -182,6 +201,7 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
             onRunUpdate({ ...run })
           } else if (ev.type === 'final') {
             gotFinal = true
+            delete lastPayload.current[key]
             setChats((c) => ({ ...c, [key]: [...(c[key] || []), { role: 'assistant', content: ev.output, trace: { steps: ev.trace } }] }))
             run.status = 'done'
             run.total = ev.total_elapsed
@@ -190,6 +210,7 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
             getConversations().then(setConvos).catch(() => {})
           } else if (ev.type === 'stopped') {
             gotFinal = true
+            delete lastPayload.current[key]
             // Server persisted the partial message — pull the canonical thread.
             refetchMessages(key)
             run.status = 'stopped'
@@ -271,7 +292,7 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
             <label className={toggles.reviewer ? 'toggle on' : 'toggle'}>
               <input type="checkbox" checked={toggles.reviewer}
                 onChange={(e) => setToggles({ ...toggles, reviewer: e.target.checked })} />
-              <span className="knob" /> {agents.reviewer?.expert_mode ? '★ ' : ''}{agents.reviewer?.name || 'Reviewer'} <em>(boss review)</em>
+              <span className="knob" /> {agents.reviewer?.expert_mode ? '★ ' : ''}{agents.reviewer?.name || 'Reviewer'} <em>(Expert)</em>
             </label>
             {customAgents.map((c) => (
               <label key={c.id} className={(toggles.custom || {})[c.id] ? 'toggle on custom' : 'toggle custom'}>
@@ -283,7 +304,7 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
             <label className={toggles.client ? 'toggle on' : 'toggle'}>
               <input type="checkbox" checked={toggles.client}
                 onChange={(e) => setToggles({ ...toggles, client: e.target.checked })} />
-              <span className="knob" /> {agents.client?.expert_mode ? '★ ' : ''}{agents.client?.name || 'Client'} <em>(client review)</em>
+              <span className="knob" /> {agents.client?.expert_mode ? '★ ' : ''}{agents.client?.name || 'Client'} <em>(Customer)</em>
             </label>
           </div>
           <div className="crew-line">Active crew: {activeAgents.join(' → ')}</div>
@@ -335,7 +356,14 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
           {running && !activeRun?.plan && (
             <div className="progress"><div className="prog-step active"><span className="dot" /><span className="prog-label">{activeRun?.fileCount > 0 ? 'Reading your files…' : 'Briefing the council…'}</span><span className="spinner" /></div></div>
           )}
-          {(error || activeRun?.error) && <div className="error-box">⚠ {error || activeRun?.error}</div>}
+          {(error || activeRun?.error) && (
+            <div className="error-box">
+              ⚠ {error || activeRun?.error}
+              {activeRun?.error && lastPayload.current[activeConv] && !running && (
+                <button className="retry-btn" title="Retry this prompt" onClick={retry}>↻ Retry</button>
+              )}
+            </div>
+          )}
           <div ref={bottomRef} />
         </div>
 

@@ -13,6 +13,7 @@ import base64
 import io
 import re
 import datetime
+from pathlib import Path
 
 # Brand palette (matches the app UI)
 GOLD = (232, 176, 75)
@@ -20,15 +21,20 @@ DARK = (23, 29, 36)
 MUTED = (110, 122, 134)
 ROW_FILL = (245, 246, 248)
 
-# Symbols that no core PDF font has; mapped regardless of font.
+# Emoji/symbols DejaVu lacks — mapped regardless of font.
 _CHARMAP = {
-    "—": "-", "–": "-", "‘": "'", "’": "'", "“": '"',
-    "”": '"', "…": "...", "→": "->", "←": "<-", "•": "-",
     " ": " ", "✅": "[OK]", "⚠": "[!]", "✗": "[x]", "❌": "[x]", "✖": "[x]",
 }
-_LATIN_EXTRA = {"₹": "Rs ", "€": "EUR "}
+# Typographic chars only stripped when stuck on a latin-1 core font.
+_LATIN_EXTRA = {
+    "—": "-", "–": "-", "‘": "'", "’": "'", "“": '"',
+    "”": '"', "…": "...", "→": "->", "←": "<-", "•": "-",
+    "₹": "Rs ", "€": "EUR ",
+}
 
+_FONT_DIR = Path(__file__).resolve().parent / "assets" / "fonts"
 _UNICODE_FONTS = [  # regular, bold — first pair that exists wins
+    (str(_FONT_DIR / "DejaVuSans.ttf"), str(_FONT_DIR / "DejaVuSans-Bold.ttf")),
     ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
      "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
     ("/usr/share/fonts/dejavu/DejaVuSans.ttf",
@@ -44,6 +50,24 @@ def _clean(text: str, latin_only: bool) -> str:
             text = text.replace(k, v)
         text = text.encode("latin-1", errors="replace").decode("latin-1")
     return text
+
+
+_SOURCE_RE = re.compile(r"\[?\[source:\s*(\S+?)\s*\]\]?", re.IGNORECASE)
+
+
+def _extract_sources(markdown: str) -> tuple[str, list[str]]:
+    """Replace inline `[source: url]` citations with compact [n] markers and
+    return the ordered, deduped url list — raw URLs mid-sentence are the single
+    biggest readability killer in the exports."""
+    sources: list[str] = []
+
+    def repl(m):
+        url = m.group(1).rstrip(".,;)")
+        if url not in sources:
+            sources.append(url)
+        return f"[{sources.index(url) + 1}]"
+
+    return _SOURCE_RE.sub(repl, markdown), sources
 
 
 def _strip_inline(text: str, keep_bold: bool = False) -> str:
@@ -133,6 +157,8 @@ def to_pdf(title: str, markdown: str, diagrams: list | None = None) -> bytes:
     from fpdf import FPDF
     from fpdf.fonts import FontFace
 
+    markdown, sources = _extract_sources(markdown)
+
     unicode_ok = False
     font_paths = None
     for reg, bold in _UNICODE_FONTS:
@@ -209,13 +235,13 @@ def to_pdf(title: str, markdown: str, diagrams: list | None = None) -> bytes:
 
     for kind, payload in _parse_md(markdown, keep_bold=True):
         if kind == "blank":
-            pdf.ln(1.6)
+            pdf.ln(1.8)
         elif kind == "h1":
-            heading(payload, 15.5, accent=True)
+            heading(payload, 16.5, accent=True)
         elif kind == "h2":
-            heading(payload, 12.5, accent=True)
+            heading(payload, 13, accent=True)
         elif kind == "h3":
-            heading(payload, 11)
+            heading(payload, 11.5)
         elif kind == "table":
             rows = payload
             ncols = max(len(r) for r in rows)
@@ -261,23 +287,36 @@ def to_pdf(title: str, markdown: str, diagrams: list | None = None) -> bytes:
             pdf.set_text_color(*DARK)
             pdf.ln(1.5)
         elif kind == "bullet":
-            pdf.set_font(BODY, "", 10)
+            pdf.set_font(BODY, "", 10.4)
             pdf.set_text_color(*DARK)
             x = pdf.get_x()
             pdf.set_fill_color(*GOLD)
-            pdf.rect(x + 1.6, pdf.get_y() + 2.3, 1.5, 1.5, style="F")
+            pdf.rect(x + 1.6, pdf.get_y() + 2.4, 1.5, 1.5, style="F")
             pdf.set_x(x + 5.5)
-            pdf.multi_cell(usable_w - 5.5, 5.4, C(payload), new_x="LMARGIN", new_y="NEXT",
-                           markdown=not unicode_ok or True)
+            pdf.multi_cell(usable_w - 5.5, 5.7, C(payload), new_x="LMARGIN", new_y="NEXT",
+                           markdown=True)
+            pdf.ln(0.6)
         elif kind == "numbered":
-            pdf.set_font(BODY, "", 10)
+            pdf.set_font(BODY, "", 10.4)
             pdf.set_text_color(*DARK)
             pdf.set_x(pdf.get_x() + 3)
-            pdf.multi_cell(usable_w - 3, 5.4, C(payload), new_x="LMARGIN", new_y="NEXT", markdown=True)
+            pdf.multi_cell(usable_w - 3, 5.7, C(payload), new_x="LMARGIN", new_y="NEXT", markdown=True)
+            pdf.ln(0.6)
         else:
-            pdf.set_font(BODY, "", 10)
+            pdf.set_font(BODY, "", 10.4)
             pdf.set_text_color(*DARK)
-            pdf.multi_cell(usable_w, 5.4, C(payload), new_x="LMARGIN", new_y="NEXT", markdown=True)
+            pdf.multi_cell(usable_w, 5.8, C(payload), new_x="LMARGIN", new_y="NEXT",
+                           markdown=True, align="J")
+
+    if sources:
+        heading("Sources", 13, accent=True)
+        pdf.set_font(BODY, "", 8.4)
+        for i, url in enumerate(sources, 1):
+            pdf.set_text_color(*MUTED)
+            pdf.cell(8, 4.6, f"[{i}]")
+            pdf.set_text_color(46, 100, 160)
+            pdf.multi_cell(usable_w - 8, 4.6, C(url), new_x="LMARGIN", new_y="NEXT", link=url)
+        pdf.set_text_color(*DARK)
 
     return bytes(pdf.output())
 
@@ -288,6 +327,8 @@ def to_pptx(title: str, markdown: str, diagrams: list | None = None) -> bytes:
     from pptx import Presentation
     from pptx.dml.color import RGBColor
     from pptx.util import Inches, Pt, Emu
+
+    markdown, sources = _extract_sources(markdown)
 
     C_DARK = RGBColor(*DARK)
     C_GOLD = RGBColor(*GOLD)
@@ -380,8 +421,12 @@ def to_pptx(title: str, markdown: str, diagrams: list | None = None) -> bytes:
         rows = [r + [""] * (ncols - len(r)) for r in rows]
         chunks = [rows[0:1] + rows[i:i + 9] for i in range(1, len(rows), 9)] if len(rows) > 10 else [rows]
         for chunk in chunks:
-            ensure(len(chunk) + 1)
-            top = Inches(1.6 + 0.42 * state["used"] * 0.9)
+            # Tables are absolutely positioned — give each a clean slide region
+            # so it can never overlap the flowed text above it.
+            if state["slide"] is None or state["used"] > 0.5:
+                new_slide((state["title"] or "Overview").replace(" (cont.)", "") + " (cont.)"
+                          if state["slide"] is not None else (state["title"] or "Overview"))
+            top = Inches(1.6)
             h = Inches(0.4 * len(chunk))
             shape = state["slide"].shapes.add_table(len(chunk), ncols, Inches(0.78), top, Inches(11.8), h)
             t = shape.table
@@ -401,7 +446,9 @@ def to_pptx(title: str, markdown: str, diagrams: list | None = None) -> bytes:
                         cell.fill.solid()
                         cell.fill.fore_color.rgb = C_ROW if ri % 2 == 0 else C_WHITE
                         para.font.color.rgb = C_DARK
-            state["used"] += len(chunk) + 1
+            # the body textbox shares this region — anything after the table
+            # must open a fresh slide or it would render on top of it
+            state["used"] = MAX_UNITS
 
     def add_image(img: bytes):
         ensure(MAX_UNITS)  # diagrams get their own slide area
@@ -434,10 +481,19 @@ def to_pptx(title: str, markdown: str, diagrams: list | None = None) -> bytes:
         elif kind == "code":
             for ln in payload.splitlines()[:10]:
                 add_para(ln, 1, size=12, color=C_MUTED)
-        elif kind in ("bullet", "numbered"):
+        elif kind == "bullet":
+            add_para(f"•  {payload}", 1)
+        elif kind == "numbered":
             add_para(payload, 1)
         else:
             add_para(payload, 0)
+
+    if sources:
+        new_slide("Sources")
+        for i, url in enumerate(sources[:14], 1):
+            add_para(f"[{i}]  {url}", 0, size=12, color=C_MUTED)
+        if len(sources) > 14:
+            add_para(f"…and {len(sources) - 14} more (see PDF export)", 0, size=12, color=C_MUTED)
 
     buf = io.BytesIO()
     prs.save(buf)

@@ -8,6 +8,7 @@ request from the stage list, so users can insert/reorder agents freely.
 """
 
 import asyncio
+import re
 from typing import Annotated, TypedDict
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -44,6 +45,17 @@ class CouncilState(TypedDict, total=False):
 
 
 # ---------- helpers ----------
+
+# Deterministic format-contract filter: when the user constrained the output,
+# the analyst wraps the deliverable in markers and everything outside them is
+# discarded server-side. No markers → text passes through unchanged.
+_DELIV_RE = re.compile(r"===\s*DELIVERABLE\s*===\s*(.*?)\s*===\s*END\s*DELIVERABLE\s*===", re.DOTALL)
+
+
+def _extract_deliverable(text: str) -> str:
+    m = _DELIV_RE.search(text or "")
+    return m.group(1).strip() if m else text
+
 
 def _text_of(msg) -> str:
     c = msg.content
@@ -210,7 +222,7 @@ async def analyst_node(state: CouncilState) -> dict:
         f"CONVERSATION SO FAR (for continuity):\n{_history_text(state.get('history') or [])}\n\n"
         "Produce the full analysis now."
     )
-    draft = await _run_with_tools(llm, _sys_core(state, "analyst"), user)
+    draft = _extract_deliverable(await _run_with_tools(llm, _sys_core(state, "analyst"), user))
     return {"analysis": draft, "last_output": draft}
 
 
@@ -257,14 +269,18 @@ def make_revise_node(st: dict):
         llm = build_llm(state.get("settings"), "analyst", a.get("model"))
         relation = "your boss" if st["id"] == "reviewer" else ("the client" if st["id"] == "client" else "a reviewer on the team")
         user = (
+            f"USER'S ORIGINAL ASK (its format/length instructions are binding):\n{state.get('user_input', '')}\n\n"
             f"YOUR CURRENT ANALYSIS:\n{state.get('analysis', '')}\n\n"
             f"FEEDBACK from {st['name']} ({relation}):\n{(state.get('feedback') or {}).get(st['id'], '')}\n\n"
             "Revise the analysis to address every point — strengthen, don't just append. "
             "Search ONLY if the feedback explicitly demands new evidence you don't already have. "
+            "If the user's ask specified an output format or length (see the brief's FORMAT "
+            "CONTRACT), the revised output must still honor it EXACTLY — apply the feedback's "
+            "substance within that constraint, never expand beyond it. "
             "Output the full revised analysis."
         )
-        revised = await _run_with_tools(llm, _sys_core(state, "analyst"), user,
-                                        max_iters=MAX_TOOL_ITERS_REVISE)
+        revised = _extract_deliverable(await _run_with_tools(llm, _sys_core(state, "analyst"), user,
+                                                             max_iters=MAX_TOOL_ITERS_REVISE))
         return {"analysis": revised, "last_output": revised}
     return revise_node
 

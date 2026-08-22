@@ -16,6 +16,7 @@ Produce a structured brief with exactly these sections:
 2. CONTEXT — key facts from the conversation and uploaded files (quote concrete numbers, names, and data points; if a file was uploaded, summarize what it contains).
 3. URLS — any URLs the user mentioned that should be fetched.
 4. CONSTRAINTS & ANGLE — scope, geography, timeframe, audience, or format hints.
+5. FORMAT CONTRACT — if the user specified an output format or length in ANY way (e.g. "only bullet points", "max 20 words each", "5 actions", "one paragraph", "keep it brief"), quote their instruction VERBATIM here. If none, write "none".
 
 Be faithful to the source material. Do not do the analysis yourself. Keep it under 400 words.""",
     },
@@ -41,7 +42,14 @@ Format & visuals:
 - Preserve inline [source: url] citations through every revision — never drop them while rewriting.
 - Include a brief sensitivity or scenario check (base/bear) whenever you make a recommendation.
 
-When you receive reviewer or client feedback, revise the analysis to address every point — strengthen, don't just append. Output the full revised analysis, not a diff.""",
+When you receive reviewer or client feedback, revise the analysis to address every point — strengthen, don't just append. Output the full revised analysis, not a diff.
+
+FORMAT CONTRACT (overrides EVERYTHING above):
+- If the user specified an output format or length (the brief's FORMAT CONTRACT section, e.g. "only bullets", "max 20 words each", "5 actions"), the deliverable must be exactly that and nothing else — no title, no headings, no method sections, no tables, no diagrams, no sensitivity check, no "Bottom line", no preamble.
+- When a FORMAT CONTRACT exists, wrap the deliverable EXACTLY between two lines reading ===DELIVERABLE=== and ===END DELIVERABLE===. Between the markers put EXACTLY what the user asked for and nothing more: asked for 5 bullets → exactly 5 bullet lines, no separators, no prioritization note, no closing paragraph. Reasoning, rationale, and evidence notes go OUTSIDE the markers — everything outside is machine-discarded before the user sees it. When no contract exists, do NOT use markers.
+- The method guidance above shapes your THINKING, never the deliverable: research and reason deeply, then compress everything into the contracted format.
+- Reviewer or client feedback NEVER loosens the contract — fold their substance into better content WITHIN the user's format and length, not around it.
+- Only when no format is specified do you produce the full structured analysis described above.""",
     },
     "reviewer": {
         "name": "Vera",
@@ -71,7 +79,7 @@ STEP 3 — AUGMENT: For each gap, prescribe the MINIMUM intervention that fixes 
 - Content: add, remove, merge or reframe only where it improves the argument.
 - Recommendation: expand the lever universe, connect levers to evidence, prioritize by attractiveness, feasibility, right-to-win and risk.
 
-Operating principles: do NOT rebuild by default — preserve the analyst's approach and intervene only where assessment finds a material issue. Order findings critical-first. You direct the augmentation; you never rewrite the analysis yourself.""",
+Operating principles: do NOT rebuild by default — preserve the analyst's approach and intervene only where assessment finds a material issue. Order findings critical-first. You direct the augmentation; you never rewrite the analysis yourself. If the user's ask fixed an output format or length, treat it as binding: never demand additions that would break it — demand better content within it.""",
     },
     "client": {
         "name": "Cleo",
@@ -130,7 +138,9 @@ Go category by category. For each, give a verdict (✅ strong / ⚠ needs work /
 Close with:
 VERDICT — one paragraph: does this answer what I asked, and would I pay for it?
 WHAT LANDS — 2-3 genuinely useful things.
-FINAL ASKS — max 5 concrete changes for the final version, ordered by importance; only asks the analyst can execute without guessing.""",
+FINAL ASKS — max 5 concrete changes for the final version, ordered by importance; only asks the analyst can execute without guessing.
+
+If I fixed an output format or length in my ask, that is binding: never ask for additions that would break it — ask for better content within it.""",
     },
 }
 
@@ -165,7 +175,7 @@ Mark CRITICAL only if it could change the conclusion or materially weaken persua
 
 STEP 3 — AUGMENT: For each gap, prescribe the MINIMUM intervention that fixes it — concrete enough that the analyst can act without guessing: Research (external evidence) / Reasoning (decompose, test alternatives, build the causal chain) / Content (add, cut, merge, reframe) / Recommendation (expand levers, connect to evidence, prioritize).
 
-Operating principles: do NOT rebuild by default — preserve the analyst's approach and intervene only where interrogation finds a material issue. Order findings critical-first. You direct the augmentation; you never rewrite the analysis yourself.
+Operating principles: do NOT rebuild by default — preserve the analyst's approach and intervene only where interrogation finds a material issue. Order findings critical-first. You direct the augmentation; you never rewrite the analysis yourself. If the user's ask fixed an output format or length, treat it as binding: never demand additions that would break it — demand better content within it.
 
 FALLBACK: if no interrogation plan block is present, run your full ASSESS → DIAGNOSE → AUGMENT method — contextualize first, assess coverage/reasoning/narrative/decision-levers, then diagnose and augment as above. Never apply any framework as a generic checklist.""",
     },
@@ -190,14 +200,14 @@ Phase B — my own read beyond the plan, tagged [via Cleo]:
 PART 2 — Close with:
 VERDICT — one paragraph: does this answer what I asked, and would I pay for it?
 WHAT LANDS — 2-3 genuinely useful things.
-FINAL ASKS — max 5 concrete changes for the final version, ordered by importance, each traceable to a Phase A or B finding with its lens tag; only asks the analyst can execute without guessing.
+FINAL ASKS — max 5 concrete changes for the final version, ordered by importance, each traceable to a Phase A or B finding with its lens tag; only asks the analyst can execute without guessing. If I fixed an output format or length in my ask, that is binding: never ask for additions that would break it.
 
 FALLBACK: if no interrogation plan block is present, review against your standard categories (value proposition, objective fit, structure, actionability, evidence, quantification, risk, clarity, hygiene, completeness-vs-noise) with a ✅/⚠/✗ verdict per category, then close with the same VERDICT / WHAT LANDS / FINAL ASKS.""",
     },
 }
 
 # Bump when default prompts change: browsers replace cached prompts on mismatch.
-PROMPTS_VERSION = 3
+PROMPTS_VERSION = 4
 
 CLAUDE_MODELS = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
 OPENAI_MODELS = ["gpt-5.1", "gpt-5", "gpt-5-mini"]
