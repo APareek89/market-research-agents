@@ -9,6 +9,15 @@ from langchain_openai import ChatOpenAI
 
 from .prompts import CLAUDE_MODELS, OPENAI_MODELS, DEFAULT_MODEL
 
+# Preset suggestions for the Hugging Face router; any HF model id is accepted.
+HF_MODELS = [
+    "meta-llama/Llama-3.3-70B-Instruct",
+    "Qwen/Qwen2.5-72B-Instruct",
+    "deepseek-ai/DeepSeek-V3-0324",
+    "mistralai/Mistral-Small-24B-Instruct-2501",
+]
+HF_BASE_URL = "https://router.huggingface.co/v1"
+
 MAX_TOKENS = 8000
 
 # "Auto" mix: fast model for intake, balanced for the analyst and custom agents,
@@ -33,6 +42,8 @@ def resolve_model(settings: dict, agent_key: str, agent_model: str | None = None
     global_model = ((settings or {}).get("model") or "").strip()
     if provider == "openai":
         return global_model if global_model in OPENAI_MODELS else OPENAI_MODELS[0]
+    if provider == "hf":
+        return global_model or HF_MODELS[0]
     per_agent = (agent_model or "").strip()
     if per_agent and per_agent != "auto" and per_agent in CLAUDE_MODELS:
         return per_agent
@@ -51,6 +62,13 @@ def build_llm(settings: dict, agent_key: str = "analyst", agent_model: str | Non
         if not user_key:
             raise ConfigError("OpenAI models need your own API key — add it in the Settings tab.")
         return ChatOpenAI(model=model, api_key=user_key, max_completion_tokens=MAX_TOKENS, timeout=180)
+
+    if provider == "hf":
+        if not user_key:
+            raise ConfigError("Hugging Face models need your HF token — add it in the Settings tab.")
+        # HF Inference Providers router speaks the OpenAI protocol.
+        return ChatOpenAI(model=model, api_key=user_key, base_url=HF_BASE_URL,
+                          max_completion_tokens=MAX_TOKENS, timeout=180)
 
     key = user_key or os.environ.get("ANTHROPIC_API_KEY", "")
     if not key:

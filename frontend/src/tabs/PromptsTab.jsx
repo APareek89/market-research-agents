@@ -1,4 +1,68 @@
-import React, { useState } from 'react'
+import React, { useRef, useState } from 'react'
+import { synthesizePrompt } from '../api.js'
+
+function ConfigureModal({ agentName, agentRole, currentPrompt, settings, onUse, onClose }) {
+  const [notes, setNotes] = useState('')
+  const [files, setFiles] = useState([])
+  const [result, setResult] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const fileRef = useRef(null)
+
+  async function generate() {
+    setBusy(true)
+    setError('')
+    try {
+      const prompt = await synthesizePrompt({ agentName, agentRole, currentPrompt, notes, files, settings })
+      setResult(prompt)
+    } catch (e) {
+      setError(String(e.message || e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="modal">
+        <div className="modal-head">
+          <h3>⚙ Configure “{agentName}” with AI</h3>
+          <button className="ghost" onClick={onClose}>✕ Close</button>
+        </div>
+        <p className="hint">Describe the real person this agent should emulate — your boss, your client, a domain expert — and/or upload things they've written (review comments, emails, feedback docs). One agent will synthesize it all into a new system prompt for {agentName}.</p>
+        <textarea
+          className="modal-notes"
+          placeholder={'e.g. "My boss Rahul is a former McKinsey EM. He always asks for the so-what first, hates unsourced numbers, pushes on India-specific distribution reality, and ends every review with exactly 3 must-fix items…"'}
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+        />
+        <div className="modal-row">
+          <button className="ghost" onClick={() => fileRef.current?.click()}>📎 Upload docs ({files.length})</button>
+          <input ref={fileRef} type="file" multiple hidden accept=".pdf,.docx,.xlsx,.csv,.txt,.md,.png,.jpg,.jpeg"
+            onChange={(e) => { setFiles([...files, ...e.target.files]); e.target.value = '' }} />
+          {files.map((f, i) => (
+            <span key={i} className="chip">{f.name}<button onClick={() => setFiles(files.filter((_, j) => j !== i))}>×</button></span>
+          ))}
+          <span style={{ flex: 1 }} />
+          <button className="save" disabled={busy || (!notes.trim() && !files.length)} onClick={generate}>
+            {busy ? 'Synthesizing…' : result ? 'Regenerate' : 'Generate prompt'}
+          </button>
+        </div>
+        {error && <div className="error-box">⚠ {error}</div>}
+        {result && (
+          <>
+            <label className="editor-label">Generated system prompt — review, then apply</label>
+            <textarea className="modal-result" value={result} onChange={(e) => setResult(e.target.value)} spellCheck={false} />
+            <div className="modal-row">
+              <span style={{ flex: 1 }} />
+              <button className="save" onClick={() => onUse(result)}>Use this prompt</button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
 
 const ORDER = [
   ['intake', 'Agent 0'],
@@ -69,9 +133,10 @@ function StagePipeline({ agents, customAgents, stageOrder, setStageOrder, toggle
   )
 }
 
-export default function PromptsTab({ agents, defaults, setAgents, customAgents, setCustomAgents, stageOrder, setStageOrder, toggles, setToggles, models, maxCustom }) {
+export default function PromptsTab({ agents, defaults, setAgents, customAgents, setCustomAgents, stageOrder, setStageOrder, toggles, setToggles, models, maxCustom, settings }) {
   const [active, setActive] = useState('analyst') // core key or custom id
   const [drafts, setDrafts] = useState({})
+  const [configuring, setConfiguring] = useState(false)
 
   const isCustom = !['intake', 'analyst', 'reviewer', 'client'].includes(active)
   const customAgent = isCustom ? customAgents.find((c) => String(c.id) === active) : null
@@ -185,6 +250,7 @@ export default function PromptsTab({ agents, defaults, setAgents, customAgents, 
                 </select>
               </label>
             )}
+            <button className="ghost configure" onClick={() => setConfiguring(true)}>⚙ Configure with AI</button>
             <button className="save" disabled={!dirty} onClick={save}>
               {dirty ? 'Save changes' : 'Saved'}
             </button>
@@ -203,9 +269,19 @@ export default function PromptsTab({ agents, defaults, setAgents, customAgents, 
             placeholder={CUSTOM_TEMPLATE}
             spellCheck={false}
           />
-          {isCustom && <p className="hint">Model note: with an OpenAI key in Settings, all agents run on the chosen GPT model. Per-agent models apply on Claude.</p>}
+          {isCustom && <p className="hint">Model note: with an OpenAI or HF key in Settings, all agents run on that provider's chosen model. Per-agent models apply on Claude.</p>}
         </section>
       </div>
+      {configuring && (
+        <ConfigureModal
+          agentName={draft.name || 'this agent'}
+          agentRole={isCustom ? `${draft.mode === 'transformer' ? 'Transformer' : 'Reviewer'} (custom agent)` : defaults[active]?.role}
+          currentPrompt={draft.system_prompt}
+          settings={settings}
+          onUse={(prompt) => { update('system_prompt', prompt); setConfiguring(false) }}
+          onClose={() => setConfiguring(false)}
+        />
+      )}
     </div>
   )
 }

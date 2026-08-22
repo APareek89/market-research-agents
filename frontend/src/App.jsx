@@ -114,6 +114,7 @@ export default function App() {
             setToggles={setToggles}
             models={defaults.models || { claude: [] }}
             maxCustom={defaults.max_custom_agents || 3}
+            settings={settings}
           />
         </div>
         <div className={tab === 'observability' ? 'tab-pane' : 'tab-pane hidden'}>

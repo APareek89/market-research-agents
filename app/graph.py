@@ -17,6 +17,7 @@ from .llm import build_llm
 from .tools import ANALYST_TOOLS
 
 MAX_TOOL_ITERS = 6
+MAX_TOOL_ITERS_REVISE = 3  # revise passes rarely need fresh research; cap the loop for latency
 MAX_CUSTOM_AGENTS = 3
 
 
@@ -70,13 +71,13 @@ def _sys_core(state: CouncilState, key: str) -> str:
     return f"{a.get('system_prompt', '')}\n\n(Your name is {a.get('name', key)}.)"
 
 
-async def _run_with_tools(llm, system: str, user_content: str) -> str:
+async def _run_with_tools(llm, system: str, user_content: str, max_iters: int = MAX_TOOL_ITERS) -> str:
     """Manual tool-calling loop (avoids prebuilt-agent API drift across
     langgraph versions). Tools run in a thread so they don't block the loop."""
     msgs = [SystemMessage(content=system), HumanMessage(content=user_content)]
     llm_t = llm.bind_tools(ANALYST_TOOLS)
     tools_by_name = {t.name: t for t in ANALYST_TOOLS}
-    for _ in range(MAX_TOOL_ITERS):
+    for _ in range(max_iters):
         resp = await llm_t.ainvoke(msgs)
         msgs.append(resp)
         if not getattr(resp, "tool_calls", None):
@@ -227,9 +228,11 @@ def make_revise_node(st: dict):
             f"YOUR CURRENT ANALYSIS:\n{state.get('analysis', '')}\n\n"
             f"FEEDBACK from {st['name']} ({relation}):\n{(state.get('feedback') or {}).get(st['id'], '')}\n\n"
             "Revise the analysis to address every point — strengthen, don't just append. "
-            "Use tools only if you need more evidence. Output the full revised analysis."
+            "Search ONLY if the feedback explicitly demands new evidence you don't already have. "
+            "Output the full revised analysis."
         )
-        revised = await _run_with_tools(llm, _sys_core(state, "analyst"), user)
+        revised = await _run_with_tools(llm, _sys_core(state, "analyst"), user,
+                                        max_iters=MAX_TOOL_ITERS_REVISE)
         return {"analysis": revised, "last_output": revised}
     return revise_node
 

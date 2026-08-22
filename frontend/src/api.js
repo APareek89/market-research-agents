@@ -38,6 +38,20 @@ export async function exportReport(format, title, markdown) {
   URL.revokeObjectURL(url)
 }
 
+export async function synthesizePrompt({ agentName, agentRole, currentPrompt, notes, files, settings }) {
+  const form = new FormData()
+  form.append('agent_name', agentName)
+  form.append('agent_role', agentRole)
+  form.append('current_prompt', currentPrompt)
+  form.append('notes', notes)
+  form.append('settings', JSON.stringify(settings || {}))
+  for (const f of files) form.append('files', f, f.name)
+  const resp = await fetch('/api/synthesize-prompt', { method: 'POST', body: form })
+  const data = await resp.json()
+  if (!resp.ok) throw new Error(data.error || 'Synthesis failed')
+  return data.prompt
+}
+
 // POST /api/chat as multipart, parse SSE stream, invoke onEvent per event.
 export async function streamChat({ message, conversationId, files, config, onEvent, signal }) {
   const form = new FormData()

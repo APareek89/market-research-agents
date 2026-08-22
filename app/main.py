@@ -15,7 +15,7 @@ from . import db
 from .export import to_pdf, to_pptx
 from .extract import extract_file, ExtractError
 from .graph import MAX_CUSTOM_AGENTS, build_council_graph, build_stages, node_sequence
-from .llm import ConfigError, resolve_model, DEFAULT_AGENT_MODELS
+from .llm import ConfigError, build_llm, resolve_model, DEFAULT_AGENT_MODELS, HF_MODELS
 from .prompts import CLAUDE_MODELS, DEFAULT_AGENTS, DEFAULT_MODEL, OPENAI_MODELS, PROMPTS_VERSION
 
 app = FastAPI(title="Market Research Agent Council")
@@ -36,7 +36,7 @@ async def defaults():
     return {
         "agents": DEFAULT_AGENTS,
         "prompts_version": PROMPTS_VERSION,
-        "models": {"claude": CLAUDE_MODELS, "openai": OPENAI_MODELS},
+        "models": {"claude": CLAUDE_MODELS, "openai": OPENAI_MODELS, "hf": HF_MODELS},
         "default_model": "auto",
         "agent_model_defaults": DEFAULT_AGENT_MODELS,
         "max_custom_agents": MAX_CUSTOM_AGENTS,
@@ -174,6 +174,67 @@ async def chat(
 
     return StreamingResponse(stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+SYNTH_SYSTEM = """You are an expert prompt engineer for a multi-agent market-research review pipeline.
+Your job: rewrite ONE agent's system prompt so the agent emulates a real person the user describes (their boss, client, a domain expert) — from the user's notes and any uploaded documents (reviews they wrote, emails, feedback threads).
+
+Rules:
+- Extract the person's priorities, evaluation style, tone, recurring pet peeves, favorite frameworks, and standards of evidence from the material. Quote-worthy phrases they actually use are gold — work them in.
+- PRESERVE the pipeline mechanics of the current prompt: what the agent receives, whether it gives feedback vs rewrites, and any output-format contract. The agent must stay compatible with its slot in the pipeline.
+- Keep it under 450 words, imperative voice, structured (role, focus areas, concrete instructions, output format).
+- If the material is thin, still produce the best prompt you can from what's there plus the current prompt.
+- Output ONLY the new system prompt text. No preamble, no commentary, no code fences."""
+
+
+@app.post("/api/synthesize-prompt")
+async def synthesize_prompt(
+    agent_name: str = Form(""),
+    agent_role: str = Form(""),
+    current_prompt: str = Form(""),
+    notes: str = Form(""),
+    settings: str = Form("{}"),
+    files: list[UploadFile] = File(default=[]),
+):
+    try:
+        cfg_settings = json.loads(settings or "{}")
+    except json.JSONDecodeError:
+        cfg_settings = {}
+    file_parts, image_urls = [], []
+    for f in files:
+        data = await f.read()
+        try:
+            ext = extract_file(f.filename or "file", data)
+        except ExtractError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+        if ext["kind"] == "image":
+            image_urls.append(ext["data_url"])
+        else:
+            file_parts.append(f"--- {ext['name']} ---\n{ext['text']}")
+    if not notes.strip() and not file_parts and not image_urls:
+        return JSONResponse({"error": "Add some notes or upload a document first."}, status_code=400)
+
+    text = (
+        f"AGENT TO CONFIGURE: {agent_name} — {agent_role}\n\n"
+        f"CURRENT SYSTEM PROMPT:\n{current_prompt}\n\n"
+        f"USER'S NOTES ABOUT THE PERSON THIS AGENT SHOULD EMULATE:\n{notes.strip() or '(none — rely on documents)'}\n\n"
+        f"UPLOADED MATERIAL:\n{chr(10).join(file_parts) or '(none)'}\n\n"
+        "Write the new system prompt now."
+    )
+    content: list = [{"type": "text", "text": text}]
+    for url in image_urls:
+        content.append({"type": "image_url", "image_url": {"url": url}})
+    try:
+        llm = build_llm(cfg_settings, "analyst")
+        from langchain_core.messages import HumanMessage, SystemMessage
+        resp = await llm.ainvoke([SystemMessage(content=SYNTH_SYSTEM), HumanMessage(content=content)])
+        out = resp.content if isinstance(resp.content, str) else "\n".join(
+            b.get("text", "") for b in resp.content if isinstance(b, dict) and b.get("type") == "text")
+        return {"prompt": out.strip()}
+    except ConfigError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"Synthesis failed: {str(e)[:300]}"}, status_code=500)
 
 
 @app.post("/api/export")
