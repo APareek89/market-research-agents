@@ -62,6 +62,27 @@ intake ──→ analyst ──────────────┐
 - Custom agents: NO lens injection (their prompt is fully user-authored).
 - Latency: lens_prep ≈ 5-15s, fully hidden under the analyst's 2-4 min draft. Free.
 
+## 3.5 Expert Mode (the gate for retrieval)
+
+Retrieval is NOT wired to the plain enable toggles — it is gated by a new per-agent **Expert Mode**
+flag on the two review agents (reviewer + client only; never custom agents).
+
+- Config from client: `agents.reviewer.expert_mode: bool`, `agents.client.expert_mode: bool`.
+- `lens_prep` runs ONLY for agents with `enabled && expert_mode`. Neither in expert mode → no
+  router call at all (today's behavior, zero added cost).
+- **Expert prompt, server-enforced**: add `EXPERT_AGENTS` to `prompts.py` — a new default system
+  prompt variant named "Expert" for each of reviewer and client. Author them from the current
+  Vera/Cleo prompts, restructured around consuming the injected interrogation plan two-phase
+  (answered / dodged / never-considered) with lens-tag citations. When `expert_mode` is true the
+  SERVER ignores any client-supplied `system_prompt` for that agent and uses the Expert prompt —
+  enforcement lives in `build_stages`, not just the UI.
+- UI (Agents & Prompts): an "Expert Mode" toggle in the editor head for Vera and Cleo. When ON:
+  the prompt textarea is read-only showing the Expert prompt, with a banner
+  "★ Expert Mode — prompt is system-managed; task-specific framework lenses are retrieved and
+  injected per run. Toggle off to edit your own prompt." Save / Discard / Configure-with-AI are
+  disabled for the prompt (name + model stay editable). Chat toggle chip gains a ★ when expert.
+- `/api/defaults` exposes the Expert prompts (read-only display) and `expert_mode` defaults (off).
+
 ## 4. Surface changes (small)
 
 - SSE `plan` event: include a `lens_prep` node (label "Lens selection", agent "Router") so
@@ -82,7 +103,10 @@ intake ──→ analyst ──────────────┐
 
 1. Ingest → `select id from mra_frameworks` returns 20 rows.
 2. Pricing ask ("what should X charge?") → router picks van-westendorp + unit-economics(+1); innovation
-   ask → triz/scamper family; build-vs-buy ask → wardley. Spot-check 4-5 asks with toggles on.
+   ask → triz/scamper family; build-vs-buy ask → wardley. Spot-check 4-5 asks with Expert Mode on.
+2b. Expert Mode gating: expert off (toggle on) → NO router call, user prompt honored; expert on →
+   Expert prompt used even if the client sends a custom system_prompt (server-enforced); expert on
+   for Vera only → Cleo gets no lens plan.
 3. Vera's critique visibly cites lens tags and flags ≥1 "never considered" item.
 4. DB paused/unreachable → run completes identically to today (no lens plan).
 5. Both toggles off → lens_prep never runs (no wasted calls).
