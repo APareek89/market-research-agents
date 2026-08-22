@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "consent": {
+    "git_checkpoints": "auto",
+    "paid_evals": "ask",
+    "fmea_full_scan": "ask"
+  },
+  "context_sources": {
+    "prd_path": "PRD.md",
+    "architecture_doc": "docs/mermaid/01-agent-flow.mmd"
+  },
+  "fmea": {
+    "on_feature_complete": false,
+    "on_pre_commit": true,
+    "smart_suggest": true,
+    "manual_only": false,
+    "note": "User standing rule: fix P0 only; P1/P2 inform only.",
+    "failure_categories": [
+      "input_validation", "auth_session", "state_consistency", "concurrency_race",
+      "external_api_failure", "data_loss_persistence", "resource_exhaustion",
+      "error_handling_gaps", "security_access_control", "cost_runaway",
+      "ux_dead_ends", "deployment_config"
+    ],
+    "scoring": { "severity": "1-10", "occurrence": "1-10", "detection": "1-10", "p0_rpn": 200, "p1_rpn": 100 }
+  },
+  "modules": {
+    "sentinel": { "enabled": true, "manual_only": false },
+    "session_pulse": { "enabled": true },
+    "diagrams": { "mode": "A", "debug_tab": false },
+    "security_baseline": { "done": false }
+  }
+}

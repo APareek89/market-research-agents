@@ -1,0 +1,41 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Architecture Flow</title>
+<style>
+ body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:1100px;margin:0 auto;padding:24px 20px 80px;color:#1f2937;background:#fafafa}
+ h1{border-bottom:2px solid #e5e7eb;padding-bottom:8px}
+ h2{margin-top:36px;border-top:1px solid #e5e7eb;padding-top:18px;color:#111827}
+ pre.mermaid{background:#fff;border:1px solid #e5e7eb;border-radius:8px;padding:16px;margin:14px 0 28px;overflow:auto;text-align:center}
+ .hint{position:sticky;top:0;background:#fff8e1;border:1px solid #f0d264;border-radius:6px;padding:8px 12px;font-size:13px;color:#5a4a00;margin-bottom:16px}
+ .mermaid svg{max-width:100%;height:auto}
+</style></head><body>
+<div class="hint">Tip: use Ctrl/Cmd + scroll or browser zoom to enlarge a diagram.</div>
+<h1>Architecture Flow</h1>
+<h2>granularity: master</h2>
+<pre class="mermaid">%% granularity: master
+%% files: app/graph.py, app/main.py, app/extract.py, app/tools.py, app/db.py
+flowchart TD
+    U[User message + files + toggles&lt;br/&gt;POST /api/chat multipart] --&gt; EX[FUNCTION extract_file&lt;br/&gt;in: PDF/DOCX/XLSX/CSV/img ≤15MB&lt;br/&gt;out: text caps 40k chars / base64 image]
+    EX --&gt; MEM[(Postgres mra_ tables&lt;br/&gt;fallback: in-memory)]
+    MEM --&gt;|history last 12 msgs| A0
+    EX --&gt; A0[AGENT Scout · intake_node&lt;br/&gt;in: msg + history + file text + images&lt;br/&gt;out: research brief]
+    A0 --&gt; A1[AGENT Astra · analyst_node&lt;br/&gt;tools: web_search, web_fetch max 6 iters&lt;br/&gt;out: draft analysis]
+    A1 --&gt; D1{enable_reviewer?}
+    D1 --&gt;|no| D2{enable_client?}
+    D1 --&gt;|yes| A2[AGENT Vera · reviewer_node&lt;br/&gt;in: brief + draft&lt;br/&gt;out: scored critique + fixes]
+    A2 --&gt; A1R[AGENT Astra · analyst_refine_node&lt;br/&gt;tools again · out: refined analysis]
+    A1R --&gt; D2
+    D2 --&gt;|no| FIN[final = latest analysis&lt;br/&gt;SSE node_complete + final events]
+    D2 --&gt;|yes| A3[AGENT Cleo · client_node&lt;br/&gt;in: brief + current analysis&lt;br/&gt;out: stakeholder feedback]
+    A3 --&gt; A1F[AGENT Astra · analyst_final_node&lt;br/&gt;out: final polished analysis]
+    A1F --&gt; FIN
+    FIN --&gt; MEM2[(save assistant msg + full trace JSONB)]
+    FIN --&gt; UI[Chat tab renders final&lt;br/&gt;Observability tab renders trace]
+</pre>
+<script type="module">
+import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+mermaid.initialize({ startOnLoad:false, securityLevel:"loose", theme:"base",
+  themeVariables:{ fontFamily:"-apple-system, Segoe UI, Roboto, sans-serif", fontSize:"14px" } });
+await mermaid.run({ querySelector:"pre.mermaid" });
+</script>
+</body></html>

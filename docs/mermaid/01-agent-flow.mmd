@@ -1,0 +1,19 @@
+%% granularity: master
+%% files: app/graph.py, app/main.py, app/extract.py, app/tools.py, app/db.py
+flowchart TD
+    U[User message + files + toggles<br/>POST /api/chat multipart] --> EX[FUNCTION extract_file<br/>in: PDF/DOCX/XLSX/CSV/img ≤15MB<br/>out: text caps 40k chars / base64 image]
+    EX --> MEM[(Postgres mra_ tables<br/>fallback: in-memory)]
+    MEM -->|history last 12 msgs| A0
+    EX --> A0[AGENT Scout · intake_node<br/>in: msg + history + file text + images<br/>out: research brief]
+    A0 --> A1[AGENT Astra · analyst_node<br/>tools: web_search, web_fetch max 6 iters<br/>out: draft analysis]
+    A1 --> D1{enable_reviewer?}
+    D1 -->|no| D2{enable_client?}
+    D1 -->|yes| A2[AGENT Vera · reviewer_node<br/>in: brief + draft<br/>out: scored critique + fixes]
+    A2 --> A1R[AGENT Astra · analyst_refine_node<br/>tools again · out: refined analysis]
+    A1R --> D2
+    D2 -->|no| FIN[final = latest analysis<br/>SSE node_complete + final events]
+    D2 -->|yes| A3[AGENT Cleo · client_node<br/>in: brief + current analysis<br/>out: stakeholder feedback]
+    A3 --> A1F[AGENT Astra · analyst_final_node<br/>out: final polished analysis]
+    A1F --> FIN
+    FIN --> MEM2[(save assistant msg + full trace JSONB)]
+    FIN --> UI[Chat tab renders final<br/>Observability tab renders trace]

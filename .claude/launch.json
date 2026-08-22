@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "mra",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd /Users/anandpareek/Documents/market-research-agents && set -a && source .env && set +a && exec .venv/bin/uvicorn app.main:app --port 8600"],
+      "port": 8600
+    }
+  ]
+}
