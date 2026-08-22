@@ -1,5 +1,5 @@
 # Handoff — market-research-agents
-last-synced: (pre-first-commit)
+last-synced: cb9b40f
 
 **Magic phrase:** `Refer to Handoff.MD in /Users/anandpareek/Documents/market-research-agents and begin`
 
@@ -7,12 +7,13 @@ last-synced: (pre-first-commit)
 Initial build session (2026-08-22): scaffolded whole app from user spec + power-coding setup.
 
 ## Current state
-- ✅ v1 built & local QA passed: all 4 tabs, full 6-node run (haiku), toggles-off path, prompt override, bad-key error path, extraction unit tests, Postgres persistence across reload (Supabase mra_ tables live).
-- 🚧 Deploy: push to GitHub (APareek89) + Render (free), then smoke test.
+- ✅ SHIPPED v1: https://agent-council.onrender.com (Render free, srv-da4jio49v7es738cps10, Singapore; cold start ~1 min after idle). GitHub: APareek89/market-research-agents (main).
+- ✅ QA passed local+prod: 4 tabs, full 6-node run, toggles-off path, prompt override, bad-key error, extraction unit tests, Postgres persistence (Supabase mra_ tables).
+- Local dev: preview server "mra" on port 8620 (8600 is plotline-api). Env in .env (gitignored).
 
 ## Pending points
-- [ ] Deploy to Render, smoke test prod URL.
-- [ ] Offer the Loop (Loop.MD status: waiting_for_first_draft) — first draft IS working; ask user next session if not answered.
+- [ ] Loop offer pending user answer (Loop.MD status: waiting_for_first_draft — first draft works).
+- [ ] Golden-set paid evals never run (consent.paid_evals=ask).
 
 ## Decisions
 - 2026-08-22 — FastAPI + Python LangGraph + React(Vite) static, single Render service — canonical LangGraph; simplest deploy. (user approved)

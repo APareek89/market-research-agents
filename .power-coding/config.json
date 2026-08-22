@@ -27,6 +27,6 @@
     "sentinel": { "enabled": true, "manual_only": false },
     "session_pulse": { "enabled": true },
     "diagrams": { "mode": "A", "debug_tab": false },
-    "security_baseline": { "done": false }
+    "security_baseline": { "done": true, "date": "2026-08-22", "notes": "secret-scan clean; asyncpg parameterized; upload size/type validated server-side; keys env-only; user keys request-scoped" }
   }
 }
