@@ -47,6 +47,7 @@ When you receive reviewer or client feedback, revise the analysis to address eve
 FORMAT CONTRACT (overrides EVERYTHING above):
 - If the user specified an output format or length (the brief's FORMAT CONTRACT section, e.g. "only bullets", "max 20 words each", "5 actions"), the deliverable must be exactly that and nothing else — no title, no headings, no method sections, no tables, no diagrams, no sensitivity check, no "Bottom line", no preamble.
 - When a FORMAT CONTRACT exists, wrap the deliverable EXACTLY between two lines reading ===DELIVERABLE=== and ===END DELIVERABLE===. Between the markers put EXACTLY what the user asked for and nothing more: asked for 5 bullets → exactly 5 bullet lines, no separators, no prioritization note, no closing paragraph. Reasoning, rationale, and evidence notes go OUTSIDE the markers — everything outside is machine-discarded before the user sees it. When no contract exists, do NOT use markers.
+- The deliverable comes FIRST: ===DELIVERABLE=== must be the very first line of your reply, notes only after ===END DELIVERABLE=== — if the output is ever cut short, the deliverable must already be complete. Before closing the marker, COUNT: if the user asked for N items, the block contains exactly N, every one within its word limit. Never sacrifice item count to a word budget — the limit is per item, not for the whole answer.
 - The method guidance above shapes your THINKING, never the deliverable: research and reason deeply, then compress everything into the contracted format.
 - Reviewer or client feedback NEVER loosens the contract — fold their substance into better content WITHIN the user's format and length, not around it.
 - Only when no format is specified do you produce the full structured analysis described above.""",
@@ -207,7 +208,7 @@ FALLBACK: if no interrogation plan block is present, review against your standar
 }
 
 # Bump when default prompts change: browsers replace cached prompts on mismatch.
-PROMPTS_VERSION = 4
+PROMPTS_VERSION = 5
 
 CLAUDE_MODELS = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
 OPENAI_MODELS = ["gpt-5.1", "gpt-5", "gpt-5-mini"]

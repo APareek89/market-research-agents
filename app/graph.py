@@ -50,11 +50,19 @@ class CouncilState(TypedDict, total=False):
 # the analyst wraps the deliverable in markers and everything outside them is
 # discarded server-side. No markers → text passes through unchanged.
 _DELIV_RE = re.compile(r"===\s*DELIVERABLE\s*===\s*(.*?)\s*===\s*END\s*DELIVERABLE\s*===", re.DOTALL)
+_DELIV_OPEN_RE = re.compile(r"===\s*DELIVERABLE\s*===\s*", re.DOTALL)
 
 
 def _extract_deliverable(text: str) -> str:
     m = _DELIV_RE.search(text or "")
-    return m.group(1).strip() if m else text
+    if m:
+        return m.group(1).strip()
+    # Truncation tolerance: output cut off (max_tokens) before the END marker —
+    # keep everything after the opening marker rather than the raw workspace.
+    m = _DELIV_OPEN_RE.search(text or "")
+    if m:
+        return text[m.end():].strip()
+    return text
 
 
 def _text_of(msg) -> str:
