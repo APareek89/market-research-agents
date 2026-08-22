@@ -13,7 +13,7 @@ Initial build session (2026-08-22): scaffolded whole app from user spec + power-
 
 ## Pending points
 - [ ] Loop offer pending user answer (Loop.MD status: waiting_for_first_draft — first draft works).
-- [ ] Golden-set paid evals never run (consent.paid_evals=ask).
+- [x] 4-run comparative QA done 2026-08-22 (see Loop.MD journal).
 
 ## Decisions
 - 2026-08-22 — FastAPI + Python LangGraph + React(Vite) static, single Render service — canonical LangGraph; simplest deploy. (user approved)

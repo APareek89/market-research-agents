@@ -29,4 +29,5 @@ When the first working draft runs end-to-end, ASK the user: "First draft is work
 8. 30-turn conversation → memory: agent recalls a fact stated 5 turns earlier (contains).
 
 ## Run journal
+- 2026-08-22 — PAID (user-requested final QA): 2 cases × reviewers on/off on prod, auto mix. Hypothesis: review loop materially sharpens output. Result: ON runs caught real analytical contradictions (mutually-exclusive demand/legal thesis, unquantified cannibalization, unit-economics math error) and roughly doubled quantification density; cost ≈ 2.9× wall-time (11–12 min vs 2.5–4 min). No wiring overhead found (Σ node time ≈ total). Details in chat report 2026-08-22.
 _(hypothesis before every paid run; failures reproduced as free checks before re-spending)_
