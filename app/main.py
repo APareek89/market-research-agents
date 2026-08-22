@@ -12,8 +12,9 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db
+from .export import to_pdf, to_pptx
 from .extract import extract_file, ExtractError
-from .graph import GRAPH, NODE_AGENT, NODE_LABEL, NODE_OUTPUT_KEY, plan_for
+from .graph import MAX_CUSTOM_AGENTS, build_council_graph, build_stages, node_sequence
 from .llm import ConfigError, resolve_model, DEFAULT_AGENT_MODELS
 from .prompts import CLAUDE_MODELS, DEFAULT_AGENTS, DEFAULT_MODEL, OPENAI_MODELS, PROMPTS_VERSION
 
@@ -38,6 +39,7 @@ async def defaults():
         "models": {"claude": CLAUDE_MODELS, "openai": OPENAI_MODELS},
         "default_model": "auto",
         "agent_model_defaults": DEFAULT_AGENT_MODELS,
+        "max_custom_agents": MAX_CUSTOM_AGENTS,
         "default_provider": "claude",
         "server_key_available": bool(os.environ.get("ANTHROPIC_API_KEY")),
         "db": getattr(app.state, "db_mode", "unknown"),
@@ -97,10 +99,10 @@ async def chat(
             agents = {**DEFAULT_AGENTS}
             for key, val in (cfg.get("agents") or {}).items():
                 if key in agents and isinstance(val, dict):
-                    agents[key] = {**agents[key], **{k: v for k, v in val.items() if k in ("name", "system_prompt")}}
-            enable_reviewer = bool(cfg.get("enable_reviewer"))
-            enable_client = bool(cfg.get("enable_client"))
+                    agents[key] = {**agents[key], **{k: v for k, v in val.items() if k in ("name", "system_prompt", "model")}}
             settings = cfg.get("settings") or {}
+            stages = build_stages({**cfg, "agents": agents})
+            seq = node_sequence(stages)
 
             cid = await db.ensure_conversation(session_id, conversation_id or None, message.strip() or (file_names and file_names[0]) or "New research")
             history = await db.get_history(cid)
@@ -109,11 +111,28 @@ async def chat(
                 user_record += f"\n[attached: {', '.join(file_names)}]"
             await db.add_message(cid, "user", user_record)
 
-            plan = plan_for(enable_reviewer, enable_client)
-            yield sse({"type": "plan", "conversation_id": cid,
-                       "nodes": [{"node": n, "agent": agents[NODE_AGENT[n]]["name"], "label": NODE_LABEL[n],
-                                  "model": resolve_model(settings, NODE_AGENT[n])} for n in plan]})
+            def node_display(n):
+                if n.get("stage"):
+                    name = n["stage"]["name"]
+                else:
+                    name = agents[n["agent_key"]]["name"]
+                mk, mm = n["model_agent"]
+                if mk == "analyst":
+                    mm = agents["analyst"].get("model")
+                elif mk == "intake":
+                    mm = agents["intake"].get("model")
+                return name, resolve_model(settings, mk, mm)
 
+            plan_nodes = []
+            by_node = {}
+            for n in seq:
+                name, model = node_display(n)
+                info = {"node": n["node"], "agent": name, "label": n["label"], "model": model}
+                plan_nodes.append(info)
+                by_node[n["node"]] = info
+            yield sse({"type": "plan", "conversation_id": cid, "nodes": plan_nodes})
+
+            graph = build_council_graph(stages)
             state = {
                 "user_input": message.strip() or f"(user sent file(s): {', '.join(file_names)})",
                 "history": history,
@@ -121,28 +140,24 @@ async def chat(
                 "file_images": file_images,
                 "agents": agents,
                 "settings": settings,
-                "enable_reviewer": enable_reviewer,
-                "enable_client": enable_client,
             }
 
             trace = [{"node": "user", "agent": "You", "label": "User input",
                       "output": user_record, "elapsed": 0}]
             final_text = ""
             t_node = time.time()
-            async for update in GRAPH.astream(state, stream_mode="updates"):
+            async for update in graph.astream(state, stream_mode="updates"):
                 for node, delta in update.items():
-                    if node not in NODE_OUTPUT_KEY:
+                    if node not in by_node:
                         continue
                     if await request.is_disconnected():
                         return
-                    out = (delta or {}).get(NODE_OUTPUT_KEY[node], "")
+                    out = (delta or {}).get("last_output", "")
                     elapsed = round(time.time() - t_node, 1)
                     t_node = time.time()
-                    if (delta or {}).get("final"):
-                        final_text = delta["final"]
-                    step = {"node": node, "agent": agents[NODE_AGENT[node]]["name"],
-                            "label": NODE_LABEL[node], "output": out, "elapsed": elapsed,
-                            "model": resolve_model(settings, NODE_AGENT[node])}
+                    if (delta or {}).get("analysis"):
+                        final_text = delta["analysis"]
+                    step = {**by_node[node], "output": out, "elapsed": elapsed}
                     trace.append(step)
                     yield sse({"type": "node_complete", **step})
 
@@ -159,6 +174,29 @@ async def chat(
 
     return StreamingResponse(stream(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/export")
+async def export_report(payload: dict):
+    fmt = (payload.get("format") or "pdf").lower()
+    title = (payload.get("title") or "Market research report").strip()[:160]
+    markdown = payload.get("markdown") or ""
+    if not markdown.strip():
+        return JSONResponse({"error": "Nothing to export."}, status_code=400)
+    try:
+        if fmt == "pptx":
+            data = to_pptx(title, markdown)
+            media = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            fname = "agent-council-report.pptx"
+        else:
+            data = to_pdf(title, markdown)
+            media = "application/pdf"
+            fname = "agent-council-report.pdf"
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"error": f"Export failed: {e}"}, status_code=500)
+    from fastapi.responses import Response
+    return Response(content=data, media_type=media,
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
 
 
 # ---- static frontend (built React app) ----

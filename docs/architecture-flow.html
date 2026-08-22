@@ -13,24 +13,20 @@
 <h1>Architecture Flow</h1>
 <h2>granularity: master</h2>
 <pre class="mermaid">%% granularity: master
-%% files: app/graph.py, app/main.py, app/extract.py, app/tools.py, app/db.py
+%% files: app/graph.py, app/main.py, app/extract.py, app/tools.py, app/db.py, app/export.py
 flowchart TD
-    U[User message + files + toggles&lt;br/&gt;POST /api/chat multipart] --&gt; EX[FUNCTION extract_file&lt;br/&gt;in: PDF/DOCX/XLSX/CSV/img ≤15MB&lt;br/&gt;out: text caps 40k chars / base64 image]
+    U[User message + files + toggles + custom agents&lt;br/&gt;POST /api/chat multipart · Stop = client abort] --&gt; EX[FUNCTION extract_file&lt;br/&gt;in: PDF/DOCX/XLSX/CSV/img ≤15MB&lt;br/&gt;out: text caps 40k chars / base64 image]
     EX --&gt; MEM[(Postgres mra_ tables&lt;br/&gt;fallback: in-memory)]
     MEM --&gt;|history last 12 msgs| A0
-    EX --&gt; A0[AGENT Scout · intake_node&lt;br/&gt;in: msg + history + file text + images&lt;br/&gt;out: research brief]
-    A0 --&gt; A1[AGENT Astra · analyst_node&lt;br/&gt;tools: web_search, web_fetch max 6 iters&lt;br/&gt;out: draft analysis]
-    A1 --&gt; D1{enable_reviewer?}
-    D1 --&gt;|no| D2{enable_client?}
-    D1 --&gt;|yes| A2[AGENT Vera · reviewer_node&lt;br/&gt;in: brief + draft&lt;br/&gt;out: scored critique + fixes]
-    A2 --&gt; A1R[AGENT Astra · analyst_refine_node&lt;br/&gt;tools again · out: refined analysis]
-    A1R --&gt; D2
-    D2 --&gt;|no| FIN[final = latest analysis&lt;br/&gt;SSE node_complete + final events]
-    D2 --&gt;|yes| A3[AGENT Cleo · client_node&lt;br/&gt;in: brief + current analysis&lt;br/&gt;out: stakeholder feedback]
-    A3 --&gt; A1F[AGENT Astra · analyst_final_node&lt;br/&gt;out: final polished analysis]
-    A1F --&gt; FIN
+    EX --&gt; A0[AGENT Scout · intake_node&lt;br/&gt;model: per-agent or auto=haiku&lt;br/&gt;out: research brief]
+    A0 --&gt; A1[AGENT Astra · analyst_node&lt;br/&gt;tools: web_search, web_fetch max 6 iters&lt;br/&gt;auto=sonnet · out: draft analysis]
+    A1 --&gt; ST{{Dynamic review stages&lt;br/&gt;build_stages: user-ordered mix of&lt;br/&gt;Vera reviewer · Cleo client · ≤3 custom agents}}
+    ST --&gt; SG[AGENT stage · make_stage_node&lt;br/&gt;reviewer mode: feedback → Astra revise pass&lt;br/&gt;transformer mode: output REPLACES analysis&lt;br/&gt;auto: opus core / sonnet custom]
+    SG --&gt;|next stage| ST
+    ST --&gt;|stages done| FIN[final = current analysis&lt;br/&gt;SSE node_complete + final events]
     FIN --&gt; MEM2[(save assistant msg + full trace JSONB)]
-    FIN --&gt; UI[Chat tab renders final&lt;br/&gt;Observability tab renders trace]
+    FIN --&gt; UI[Chat renders final + export bar&lt;br/&gt;Observability renders trace + models]
+    UI --&gt; XP[FUNCTION /api/export&lt;br/&gt;fpdf2 PDF · python-pptx PPT&lt;br/&gt;from final markdown]
 </pre>
 <script type="module">
 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";

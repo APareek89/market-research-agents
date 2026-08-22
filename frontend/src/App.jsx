@@ -25,7 +25,9 @@ export default function App() {
   const [tab, setTab] = useState('chat')
   const [defaults, setDefaults] = useState(null)
   const [agents, setAgents] = useState(() => load('mra_agents', null))
-  const [toggles, setToggles] = useState(() => load('mra_toggles', { reviewer: true, client: true }))
+  const [customAgents, setCustomAgents] = useState(() => load('mra_custom_agents', []))
+  const [stageOrder, setStageOrder] = useState(() => load('mra_stage_order', ['reviewer', 'client']))
+  const [toggles, setToggles] = useState(() => load('mra_toggles', { reviewer: true, client: true, custom: {} }))
   const [settings, setSettings] = useState(() => load('mra_settings', { provider: 'claude', model: '', api_key: '' }))
   const [runs, setRuns] = useState([]) // observability: this session's runs
 
@@ -52,17 +54,21 @@ export default function App() {
   }, [])
 
   useEffect(() => { if (agents) localStorage.setItem('mra_agents', JSON.stringify(agents)) }, [agents])
+  useEffect(() => { localStorage.setItem('mra_custom_agents', JSON.stringify(customAgents)) }, [customAgents])
+  useEffect(() => { localStorage.setItem('mra_stage_order', JSON.stringify(stageOrder)) }, [stageOrder])
   useEffect(() => { localStorage.setItem('mra_toggles', JSON.stringify(toggles)) }, [toggles])
   useEffect(() => { localStorage.setItem('mra_settings', JSON.stringify(settings)) }, [settings])
 
   const config = useMemo(
     () => ({
       agents,
+      custom_agents: customAgents.map((c) => ({ ...c, enabled: !!(toggles.custom || {})[c.id] })),
+      stage_order: stageOrder,
       enable_reviewer: toggles.reviewer,
       enable_client: toggles.client,
       settings,
     }),
-    [agents, toggles, settings],
+    [agents, customAgents, stageOrder, toggles, settings],
   )
 
   if (!defaults) return <div className="boot">Loading the council…</div>
@@ -84,23 +90,38 @@ export default function App() {
         </nav>
       </header>
       <main className="content">
-        {tab === 'chat' && (
+        {/* All tabs stay mounted so a running chat survives tab switches. */}
+        <div className={tab === 'chat' ? 'tab-pane' : 'tab-pane hidden'}>
           <ChatTab
             config={config}
             agents={agents || {}}
+            customAgents={customAgents}
             toggles={toggles}
             setToggles={setToggles}
-            onRunComplete={(run) => setRuns((r) => [run, ...r])}
             onRunUpdate={(run) => setRuns((r) => { const i = r.findIndex((x) => x.id === run.id); if (i === -1) return [run, ...r]; const c = [...r]; c[i] = run; return c })}
           />
-        )}
-        {tab === 'prompts' && (
-          <PromptsTab agents={agents || {}} defaults={defaults.agents} setAgents={setAgents} />
-        )}
-        {tab === 'observability' && <ObservabilityTab runs={runs} />}
-        {tab === 'settings' && (
+        </div>
+        <div className={tab === 'prompts' ? 'tab-pane' : 'tab-pane hidden'}>
+          <PromptsTab
+            agents={agents || {}}
+            defaults={defaults.agents}
+            setAgents={setAgents}
+            customAgents={customAgents}
+            setCustomAgents={setCustomAgents}
+            stageOrder={stageOrder}
+            setStageOrder={setStageOrder}
+            toggles={toggles}
+            setToggles={setToggles}
+            models={defaults.models || { claude: [] }}
+            maxCustom={defaults.max_custom_agents || 3}
+          />
+        </div>
+        <div className={tab === 'observability' ? 'tab-pane' : 'tab-pane hidden'}>
+          <ObservabilityTab runs={runs} />
+        </div>
+        <div className={tab === 'settings' ? 'tab-pane' : 'tab-pane hidden'}>
           <SettingsTab settings={settings} setSettings={setSettings} defaults={defaults} />
-        )}
+        </div>
       </main>
     </div>
   )

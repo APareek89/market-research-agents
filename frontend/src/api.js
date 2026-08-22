@@ -22,8 +22,24 @@ export async function getMessages(cid) {
   return r.json()
 }
 
+export async function exportReport(format, title, markdown) {
+  const resp = await fetch('/api/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ format, title, markdown }),
+  })
+  if (!resp.ok) throw new Error('Export failed')
+  const blob = await resp.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = format === 'pptx' ? 'agent-council-report.pptx' : 'agent-council-report.pdf'
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 // POST /api/chat as multipart, parse SSE stream, invoke onEvent per event.
-export async function streamChat({ message, conversationId, files, config, onEvent }) {
+export async function streamChat({ message, conversationId, files, config, onEvent, signal }) {
   const form = new FormData()
   form.append('message', message)
   form.append('session_id', sessionId())
@@ -31,7 +47,7 @@ export async function streamChat({ message, conversationId, files, config, onEve
   form.append('config', JSON.stringify(config))
   for (const f of files) form.append('files', f, f.name)
 
-  const resp = await fetch('/api/chat', { method: 'POST', body: form })
+  const resp = await fetch('/api/chat', { method: 'POST', body: form, signal })
   if (!resp.ok || !resp.body) {
     throw new Error(`Server error (${resp.status})`)
   }
