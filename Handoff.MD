@@ -1,5 +1,5 @@
 # Handoff — market-research-agents
-last-synced: cb9b40f
+last-synced: dbbbdd4
 
 **Magic phrase:** `Refer to Handoff.MD in /Users/anandpareek/Documents/market-research-agents and begin`
 
