@@ -1,22 +1,23 @@
-"""FastAPI app: SSE chat endpoint driving the LangGraph council, defaults API,
-conversation history, and static serving of the built React frontend."""
+"""FastAPI app: SSE chat endpoint driving the LangGraph council (as detached
+background runs — see runs.py), defaults API, conversation history, run
+re-attach/stop endpoints, and static serving of the built React frontend."""
 
+import asyncio
 import json
-import time
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, Request, UploadFile, File, Form
+from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import db
+from . import db, runs
 from .export import to_pdf, to_pptx
 from .extract import extract_file, ExtractError
-from .graph import MAX_CUSTOM_AGENTS, build_council_graph, build_stages, node_sequence
-from .llm import ConfigError, build_llm, resolve_model, DEFAULT_AGENT_MODELS, HF_MODELS
-from .prompts import CLAUDE_MODELS, DEFAULT_AGENTS, DEFAULT_MODEL, OPENAI_MODELS, PROMPTS_VERSION
+from .graph import MAX_CUSTOM_AGENTS
+from .llm import ConfigError, build_llm, DEFAULT_AGENT_MODELS, HF_MODELS
+from .prompts import CLAUDE_MODELS, DEFAULT_AGENTS, OPENAI_MODELS, PROMPTS_VERSION
 
 app = FastAPI(title="Market Research Agent Council")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -29,6 +30,15 @@ async def startup():
 
 def sse(obj: dict) -> str:
     return f"data: {json.dumps(obj)}\n\n"
+
+
+SSE_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+
+def error_stream(message: str) -> StreamingResponse:
+    async def gen():
+        yield sse({"type": "error", "message": message})
+    return StreamingResponse(gen(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 @app.get("/api/defaults")
@@ -58,7 +68,6 @@ async def conversation_messages(conversation_id: str):
 
 @app.post("/api/chat")
 async def chat(
-    request: Request,
     message: str = Form(""),
     session_id: str = Form(...),
     conversation_id: str = Form(""),
@@ -70,110 +79,56 @@ async def chat(
     except json.JSONDecodeError:
         cfg = {}
 
-    # Read uploads before streaming starts (request body is only valid here)
+    # Read uploads before the request body is gone (the run outlives the request)
     raw_files = []
     for f in files:
         data = await f.read()
         raw_files.append((f.filename or "file", data))
 
-    async def stream():
-        t_run = time.time()
-        try:
-            file_texts, file_images, file_names = [], [], []
-            for name, data in raw_files:
-                try:
-                    ext = extract_file(name, data)
-                except ExtractError as e:
-                    yield sse({"type": "error", "message": str(e)})
-                    return
-                file_names.append(name)
-                if ext["kind"] == "image":
-                    file_images.append(ext["data_url"])
-                else:
-                    file_texts.append(ext)
+    if not message.strip() and not raw_files:
+        return error_stream("Type a message or attach a file.")
+    existing = runs.get(conversation_id) if conversation_id else None
+    if existing and existing.status == "running":
+        return error_stream("A run is already in progress in this thread. Stop it or wait for it to finish.")
 
-            if not message.strip() and not raw_files:
-                yield sse({"type": "error", "message": "Type a message or attach a file."})
-                return
+    title_hint = message.strip() or (raw_files and raw_files[0][0]) or "New research"
+    cid = await db.ensure_conversation(session_id, conversation_id or None, title_hint)
+    run = runs.register(cid, session_id)
+    # First event tells the client its real conversation id immediately
+    # (needed to Stop or re-attach before the plan is ready).
+    await run.emit({"type": "conversation", "conversation_id": cid, "run_id": run.id})
+    run.task = asyncio.create_task(
+        runs.execute_run(run, message=message.strip(), raw_files=raw_files, cfg=cfg))
 
-            agents = {**DEFAULT_AGENTS}
-            for key, val in (cfg.get("agents") or {}).items():
-                if key in agents and isinstance(val, dict):
-                    agents[key] = {**agents[key], **{k: v for k, v in val.items() if k in ("name", "system_prompt", "model")}}
-            settings = cfg.get("settings") or {}
-            stages = build_stages({**cfg, "agents": agents})
-            seq = node_sequence(stages)
+    return StreamingResponse(runs.tail(run, 0), media_type="text/event-stream", headers=SSE_HEADERS)
 
-            cid = await db.ensure_conversation(session_id, conversation_id or None, message.strip() or (file_names and file_names[0]) or "New research")
-            history = await db.get_history(cid)
-            user_record = message.strip()
-            if file_names:
-                user_record += f"\n[attached: {', '.join(file_names)}]"
-            await db.add_message(cid, "user", user_record)
 
-            def node_display(n):
-                if n.get("stage"):
-                    name = n["stage"]["name"]
-                else:
-                    name = agents[n["agent_key"]]["name"]
-                mk, mm = n["model_agent"]
-                if mk == "analyst":
-                    mm = agents["analyst"].get("model")
-                elif mk == "intake":
-                    mm = agents["intake"].get("model")
-                return name, resolve_model(settings, mk, mm)
+@app.get("/api/runs/active")
+async def active_runs(session_id: str):
+    return runs.active_for(session_id)
 
-            plan_nodes = []
-            by_node = {}
-            for n in seq:
-                name, model = node_display(n)
-                info = {"node": n["node"], "agent": name, "label": n["label"], "model": model}
-                plan_nodes.append(info)
-                by_node[n["node"]] = info
-            yield sse({"type": "plan", "conversation_id": cid, "nodes": plan_nodes})
 
-            graph = build_council_graph(stages)
-            state = {
-                "user_input": message.strip() or f"(user sent file(s): {', '.join(file_names)})",
-                "history": history,
-                "file_texts": file_texts,
-                "file_images": file_images,
-                "agents": agents,
-                "settings": settings,
-            }
+@app.get("/api/runs/{conversation_id}/stream")
+async def run_stream(conversation_id: str, after: int = 0):
+    run = runs.get(conversation_id)
+    if run:
+        return StreamingResponse(runs.tail(run, after), media_type="text/event-stream", headers=SSE_HEADERS)
+    stored = await db.get_run(conversation_id)
+    if stored:
+        async def replay():
+            for ev in stored["events"][after:]:
+                yield sse(ev)
+        return StreamingResponse(replay(), media_type="text/event-stream", headers=SSE_HEADERS)
+    return error_stream("No run found for this conversation.")
 
-            trace = [{"node": "user", "agent": "You", "label": "User input",
-                      "output": user_record, "elapsed": 0}]
-            final_text = ""
-            t_node = time.time()
-            async for update in graph.astream(state, stream_mode="updates"):
-                for node, delta in update.items():
-                    if node not in by_node:
-                        continue
-                    if await request.is_disconnected():
-                        return
-                    out = (delta or {}).get("last_output", "")
-                    elapsed = round(time.time() - t_node, 1)
-                    t_node = time.time()
-                    if (delta or {}).get("analysis"):
-                        final_text = delta["analysis"]
-                    step = {**by_node[node], "output": out, "elapsed": elapsed}
-                    trace.append(step)
-                    yield sse({"type": "node_complete", **step})
 
-            await db.add_message(cid, "assistant", final_text, {"steps": trace})
-            yield sse({"type": "final", "conversation_id": cid, "output": final_text,
-                       "trace": trace, "total_elapsed": round(time.time() - t_run, 1)})
-        except ConfigError as e:
-            yield sse({"type": "error", "message": str(e)})
-        except Exception as e:  # noqa: BLE001
-            msg = str(e)
-            if "authentication" in msg.lower() or "api key" in msg.lower() or "401" in msg:
-                msg = "The API key was rejected by the provider. Check the key in Settings."
-            yield sse({"type": "error", "message": f"Run failed at the model call: {msg[:500]}"})
-
-    return StreamingResponse(stream(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+@app.post("/api/runs/{conversation_id}/stop")
+async def stop_run(conversation_id: str):
+    run = runs.get(conversation_id)
+    if not run or run.status != "running" or not run.task:
+        return {"ok": False, "status": run.status if run else "none"}
+    run.task.cancel()
+    return {"ok": True}
 
 
 SYNTH_SYSTEM = """You are an expert prompt engineer for a multi-agent market-research review pipeline.

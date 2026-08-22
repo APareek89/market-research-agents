@@ -1,7 +1,9 @@
 %% granularity: master
-%% files: app/graph.py, app/main.py, app/extract.py, app/tools.py, app/db.py, app/export.py
+%% files: app/graph.py, app/main.py, app/runs.py, app/extract.py, app/tools.py, app/db.py, app/export.py
 flowchart TD
-    U[User message + files + toggles + custom agents<br/>POST /api/chat multipart · Stop = client abort] --> EX[FUNCTION extract_file<br/>in: PDF/DOCX/XLSX/CSV/img ≤15MB<br/>out: text caps 40k chars / base64 image]
+    U[User message + files + toggles + custom agents<br/>POST /api/chat multipart · Stop = POST /api/runs/id/stop] --> RUN[FUNCTION detached run task · runs.py<br/>asyncio task outlives the request<br/>every event → registry + mra_runs JSONB]
+    RUN --> EX[FUNCTION extract_file<br/>in: PDF/DOCX/XLSX/CSV/img ≤15MB<br/>out: text caps 40k chars / base64 image]
+    RUN -. attach / re-attach by conversation id .-> VW[SSE viewers · tail with replay cursor<br/>POST /api/chat = first viewer<br/>GET /api/runs/id/stream after reload<br/>15s heartbeat · disconnect ≠ stop]
     EX --> MEM[(Postgres mra_ tables<br/>fallback: in-memory)]
     MEM -->|history last 12 msgs| A0
     EX --> A0[AGENT Scout · intake_node<br/>model: per-agent or auto=haiku<br/>out: research brief]
@@ -10,6 +12,6 @@ flowchart TD
     ST --> SG[AGENT stage · make_stage_node<br/>reviewer mode: feedback → Astra revise pass<br/>transformer mode: output REPLACES analysis<br/>auto: opus core / sonnet custom]
     SG -->|next stage| ST
     ST -->|stages done| FIN[final = current analysis<br/>SSE node_complete + final events]
-    FIN --> MEM2[(save assistant msg + full trace JSONB)]
+    FIN --> MEM2[(save assistant msg + full trace JSONB<br/>stop → partial ⏹ msg persisted server-side)]
     FIN --> UI[Chat renders final + export bar<br/>Observability renders trace + models]
     UI --> XP[FUNCTION /api/export<br/>fpdf2 PDF · python-pptx PPT<br/>from final markdown]

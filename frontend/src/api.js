@@ -52,19 +52,8 @@ export async function synthesizePrompt({ agentName, agentRole, currentPrompt, no
   return data.prompt
 }
 
-// POST /api/chat as multipart, parse SSE stream, invoke onEvent per event.
-export async function streamChat({ message, conversationId, files, config, onEvent, signal }) {
-  const form = new FormData()
-  form.append('message', message)
-  form.append('session_id', sessionId())
-  form.append('conversation_id', conversationId || '')
-  form.append('config', JSON.stringify(config))
-  for (const f of files) form.append('files', f, f.name)
-
-  const resp = await fetch('/api/chat', { method: 'POST', body: form, signal })
-  if (!resp.ok || !resp.body) {
-    throw new Error(`Server error (${resp.status})`)
-  }
+// Parse an SSE body, invoking onEvent per data frame (heartbeat comments skipped).
+async function readSSE(resp, onEvent) {
   const reader = resp.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -84,4 +73,38 @@ export async function streamChat({ message, conversationId, files, config, onEve
       }
     }
   }
+}
+
+// POST /api/chat as multipart; the server runs the council in a detached
+// background task and this stream is just an attached viewer.
+export async function streamChat({ message, conversationId, files, config, onEvent, signal }) {
+  const form = new FormData()
+  form.append('message', message)
+  form.append('session_id', sessionId())
+  form.append('conversation_id', conversationId || '')
+  form.append('config', JSON.stringify(config))
+  for (const f of files) form.append('files', f, f.name)
+
+  const resp = await fetch('/api/chat', { method: 'POST', body: form, signal })
+  if (!resp.ok || !resp.body) {
+    throw new Error(`Server error (${resp.status})`)
+  }
+  await readSSE(resp, onEvent)
+}
+
+export async function getActiveRuns() {
+  const r = await fetch(`/api/runs/active?session_id=${sessionId()}`)
+  return r.json()
+}
+
+// Re-attach to a conversation's run (e.g. after a page reload); replays all
+// events from the start, then live-tails until the run finishes.
+export async function attachRun(cid, onEvent, signal) {
+  const resp = await fetch(`/api/runs/${cid}/stream`, { signal })
+  if (!resp.ok || !resp.body) throw new Error(`Server error (${resp.status})`)
+  await readSSE(resp, onEvent)
+}
+
+export async function stopRun(cid) {
+  await fetch(`/api/runs/${cid}/stop`, { method: 'POST' })
 }

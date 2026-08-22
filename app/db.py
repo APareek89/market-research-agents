@@ -28,6 +28,16 @@ CREATE TABLE IF NOT EXISTS mra_messages (
     created_at TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS mra_messages_conv_idx ON mra_messages (conversation_id);
+CREATE TABLE IF NOT EXISTS mra_runs (
+    id UUID PRIMARY KEY,
+    conversation_id UUID,
+    session_id TEXT,
+    status TEXT NOT NULL,
+    events JSONB,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    updated_at TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS mra_runs_conv_idx ON mra_runs (conversation_id);
 """
 
 
@@ -42,6 +52,8 @@ async def init_db() -> str:
                                           statement_cache_size=0, timeout=10)
         async with _pool.acquire() as con:
             await con.execute(SCHEMA)
+            # Runs left 'running' by a previous process died with it.
+            await con.execute("UPDATE mra_runs SET status='error', updated_at=now() WHERE status='running'")
         return "postgres"
     except Exception as e:  # noqa: BLE001
         _pool = None
@@ -82,6 +94,39 @@ async def add_message(conversation_id: str, role: str, content: str, trace: dict
     conv = _mem.setdefault(conversation_id, {"session_id": "?", "title": "", "messages": []})
     conv["messages"].append({"id": mid, "role": role, "content": content, "trace": trace,
                              "created_at": datetime.datetime.utcnow().isoformat()})
+
+
+async def save_run(run) -> None:
+    """Incremental best-effort persist of a run's full event log (upsert)."""
+    if not _pool:
+        return
+    try:
+        async with _pool.acquire() as con:
+            await con.execute(
+                "INSERT INTO mra_runs (id, conversation_id, session_id, status, events, updated_at) "
+                "VALUES ($1,$2,$3,$4,$5,now()) "
+                "ON CONFLICT (id) DO UPDATE SET status=EXCLUDED.status, events=EXCLUDED.events, updated_at=now()",
+                uuid.UUID(run.id), uuid.UUID(run.conversation_id), run.session_id,
+                run.status, json.dumps(run.events))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+async def get_run(conversation_id: str) -> dict | None:
+    """Latest persisted run for a conversation (for replay after a restart)."""
+    if not _pool:
+        return None
+    try:
+        async with _pool.acquire() as con:
+            r = await con.fetchrow(
+                "SELECT id, status, events FROM mra_runs WHERE conversation_id=$1 "
+                "ORDER BY created_at DESC LIMIT 1", uuid.UUID(conversation_id))
+        if not r:
+            return None
+        return {"id": str(r["id"]), "status": r["status"],
+                "events": json.loads(r["events"]) if r["events"] else []}
+    except Exception:  # noqa: BLE001
+        return None
 
 
 async def get_history(conversation_id: str, limit: int = 12) -> list[dict]:

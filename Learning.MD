@@ -9,6 +9,12 @@ Log of bugs, corrective feedback, and hard-won fixes. 5-whys format:
 **Action (targeted why #2):** serialize with `XMLSerializer().serializeToString()` — well-formed XML regardless of label type; verified 370KB PNG from a real diagram.
 **Preventive (class):** any DOM→data-URL SVG handling in this repo must go through `svgToPng()` in md.jsx — never hand-serialize SVG with innerHTML/outerHTML.
 
+## 2026-08-22 — Fire-and-forget cleanup task could be GC'd (caught pre-commit)
+**Symptom:** none yet — light FMEA on the run-persistence diff flagged that `asyncio.create_task(_finish_stopped(...))` kept no reference, so Python may garbage-collect the pending task and silently skip the stop-cleanup (run stuck 'running', UI hangs until reload).
+**Why-chain:** cleanup runs in a fresh task because the cancelled task can't safely await → fresh task was unreferenced → (deepest why, type: knowledge-gap) asyncio only weakly references scheduled tasks; fire-and-forget is never safe.
+**Action (targeted why #2):** store the task on the run object (`run.cleanup_task`), which the RUNS registry keeps alive.
+**Preventive (class):** every `asyncio.create_task` in this repo must assign the result somewhere long-lived — grep for bare `create_task(` in review.
+
 ## 2026-08-22 — Both chat runs "silently" produced nothing (QA scare)
 **Symptom:** two runs closed instantly with no output; looked like a multi-thread wiring bug.
 **Why-chain:** server rejected both with ConfigError → provider was `hf` with no token → my own Settings-tab UI testing had saved `provider:'hf'` to localStorage → (deepest why, type: process) QA left state behind in the shared browser profile.

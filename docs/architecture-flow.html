@@ -13,9 +13,11 @@
 <h1>Architecture Flow</h1>
 <h2>granularity: master</h2>
 <pre class="mermaid">%% granularity: master
-%% files: app/graph.py, app/main.py, app/extract.py, app/tools.py, app/db.py, app/export.py
+%% files: app/graph.py, app/main.py, app/runs.py, app/extract.py, app/tools.py, app/db.py, app/export.py
 flowchart TD
-    U[User message + files + toggles + custom agents&lt;br/&gt;POST /api/chat multipart · Stop = client abort] --&gt; EX[FUNCTION extract_file&lt;br/&gt;in: PDF/DOCX/XLSX/CSV/img ≤15MB&lt;br/&gt;out: text caps 40k chars / base64 image]
+    U[User message + files + toggles + custom agents&lt;br/&gt;POST /api/chat multipart · Stop = POST /api/runs/id/stop] --&gt; RUN[FUNCTION detached run task · runs.py&lt;br/&gt;asyncio task outlives the request&lt;br/&gt;every event → registry + mra_runs JSONB]
+    RUN --&gt; EX[FUNCTION extract_file&lt;br/&gt;in: PDF/DOCX/XLSX/CSV/img ≤15MB&lt;br/&gt;out: text caps 40k chars / base64 image]
+    RUN -. attach / re-attach by conversation id .-&gt; VW[SSE viewers · tail with replay cursor&lt;br/&gt;POST /api/chat = first viewer&lt;br/&gt;GET /api/runs/id/stream after reload&lt;br/&gt;15s heartbeat · disconnect ≠ stop]
     EX --&gt; MEM[(Postgres mra_ tables&lt;br/&gt;fallback: in-memory)]
     MEM --&gt;|history last 12 msgs| A0
     EX --&gt; A0[AGENT Scout · intake_node&lt;br/&gt;model: per-agent or auto=haiku&lt;br/&gt;out: research brief]
@@ -24,7 +26,7 @@ flowchart TD
     ST --&gt; SG[AGENT stage · make_stage_node&lt;br/&gt;reviewer mode: feedback → Astra revise pass&lt;br/&gt;transformer mode: output REPLACES analysis&lt;br/&gt;auto: opus core / sonnet custom]
     SG --&gt;|next stage| ST
     ST --&gt;|stages done| FIN[final = current analysis&lt;br/&gt;SSE node_complete + final events]
-    FIN --&gt; MEM2[(save assistant msg + full trace JSONB)]
+    FIN --&gt; MEM2[(save assistant msg + full trace JSONB&lt;br/&gt;stop → partial ⏹ msg persisted server-side)]
     FIN --&gt; UI[Chat renders final + export bar&lt;br/&gt;Observability renders trace + models]
     UI --&gt; XP[FUNCTION /api/export&lt;br/&gt;fpdf2 PDF · python-pptx PPT&lt;br/&gt;from final markdown]
 </pre>

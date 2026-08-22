@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { streamChat, getConversations, getMessages, exportReport } from '../api.js'
+import { streamChat, getConversations, getMessages, exportReport, getActiveRuns, attachRun, stopRun } from '../api.js'
 import { MdContent, renderMermaidPngs } from '../md.jsx'
 
 const ACCEPT = '.pdf,.docx,.xlsx,.xlsm,.csv,.txt,.md,.json,.png,.jpg,.jpeg,.gif,.webp'
@@ -17,7 +17,9 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
   const [files, setFiles] = useState([])
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState('')
-  const controllers = useRef({})           // convKey -> AbortController
+  const controllers = useRef({})           // convKey -> AbortController (viewer stream only)
+  const stopFlags = useRef({})             // convKey -> stop requested before real id known
+  const reattached = useRef(false)
   const fileRef = useRef(null)
   const bottomRef = useRef(null)
 
@@ -33,6 +35,57 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
       .catch(() => {})
   }, [activeConv])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages.length, activeRun?.done])
+
+  // Runs live server-side now: after a reload, re-attach to any still in flight.
+  useEffect(() => {
+    if (reattached.current) return
+    reattached.current = true
+    getActiveRuns()
+      .then((list) => (list || []).forEach((r) => reattach(r.conversation_id)))
+      .catch(() => {})
+  }, [])
+
+  function refetchMessages(cid) {
+    getMessages(cid)
+      .then((msgs) => setChats((c) => ({ ...c, [cid]: msgs.map((m) => ({ role: m.role, content: m.content, trace: m.trace })) })))
+      .catch(() => {})
+    getConversations().then(setConvos).catch(() => {})
+  }
+
+  function reattach(cid) {
+    if (controllers.current[cid]) return // this tab is already streaming it
+    const controller = new AbortController()
+    controllers.current[cid] = controller
+    setRuns((r) => ({ ...r, [cid]: { status: 'running', plan: null, done: 0 } }))
+    const run = { id: crypto.randomUUID(), at: new Date().toLocaleTimeString(), input: '(rejoined after reload)', steps: [], status: 'running' }
+    onRunUpdate({ ...run })
+    attachRun(cid, (ev) => {
+      if (ev.type === 'plan') {
+        setRuns((r) => ({ ...r, [cid]: { ...(r[cid] || {}), plan: ev.nodes, done: 0, status: 'running' } }))
+      } else if (ev.type === 'node_complete') {
+        setRuns((r) => ({ ...r, [cid]: { ...(r[cid] || {}), done: ((r[cid] || {}).done || 0) + 1 } }))
+        run.steps.push(ev)
+        onRunUpdate({ ...run })
+      } else if (ev.type === 'final' || ev.type === 'stopped') {
+        // Message is already persisted server-side — refetch instead of appending.
+        refetchMessages(cid)
+        run.status = ev.type === 'final' ? 'done' : 'stopped'
+        run.total = ev.total_elapsed
+        if (ev.trace) run.steps = ev.trace.filter((s) => s.node !== 'user')
+        onRunUpdate({ ...run })
+      } else if (ev.type === 'error') {
+        setRuns((r) => ({ ...r, [cid]: { ...(r[cid] || {}), error: ev.message } }))
+        run.status = 'error'
+        run.error = ev.message
+        onRunUpdate({ ...run })
+      }
+    }, controller.signal)
+      .catch(() => {})
+      .finally(() => {
+        delete controllers.current[cid]
+        setRuns((r) => ({ ...r, [cid]: { ...(r[cid] || {}), status: 'idle', plan: null } }))
+      })
+  }
 
   function pickConversation(key) {
     setActiveConv(key)
@@ -60,7 +113,13 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
   }
 
   function stop() {
-    controllers.current[activeConv]?.abort()
+    // Runs are detached server-side: stopping is an API call, not a fetch abort.
+    if (activeConv !== 'new' && !activeConv.startsWith('tmp-')) {
+      stopRun(activeConv).catch(() => {})
+    } else {
+      // Real id not known yet — flag it; the 'conversation' event fires the stop.
+      stopFlags.current[activeConv] = true
+    }
   }
 
   async function send() {
@@ -97,21 +156,25 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
         config,
         signal: controller.signal,
         onEvent: (ev) => {
-          if (ev.type === 'plan') {
-            const realId = ev.conversation_id
-            if (realId && realId !== key) {
-              const oldKey = key
-              key = realId
-              controllers.current[realId] = controllers.current[oldKey]
-              delete controllers.current[oldKey]
-              setChats((c) => renameKey(c, oldKey, realId))
-              setRuns((r) => renameKey(r, oldKey, realId))
-              setConvos((c) => c.map((x) => (x.id === oldKey ? { ...x, id: realId } : x)))
-              setActiveConv((cur) => (cur === oldKey ? realId : cur))
-              if ((localStorage.getItem('mra_conversation') || '') === '' || localStorage.getItem('mra_conversation') === oldKey) {
-                localStorage.setItem('mra_conversation', realId)
-              }
+          const realId = ev.conversation_id
+          if ((ev.type === 'conversation' || ev.type === 'plan') && realId && realId !== key) {
+            const oldKey = key
+            key = realId
+            controllers.current[realId] = controllers.current[oldKey]
+            delete controllers.current[oldKey]
+            setChats((c) => renameKey(c, oldKey, realId))
+            setRuns((r) => renameKey(r, oldKey, realId))
+            setConvos((c) => c.map((x) => (x.id === oldKey ? { ...x, id: realId } : x)))
+            setActiveConv((cur) => (cur === oldKey ? realId : cur))
+            if ((localStorage.getItem('mra_conversation') || '') === '' || localStorage.getItem('mra_conversation') === oldKey) {
+              localStorage.setItem('mra_conversation', realId)
             }
+            if (stopFlags.current[oldKey]) {
+              delete stopFlags.current[oldKey]
+              stopRun(realId).catch(() => {})
+            }
+          }
+          if (ev.type === 'plan') {
             setRuns((r) => ({ ...r, [key]: { ...(r[key] || {}), plan: ev.nodes, done: 0, status: 'running' } }))
           } else if (ev.type === 'node_complete') {
             setRuns((r) => ({ ...r, [key]: { ...(r[key] || {}), done: ((r[key] || {}).done || 0) + 1 } }))
@@ -125,6 +188,13 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
             run.steps = ev.trace.filter((s) => s.node !== 'user')
             onRunUpdate({ ...run })
             getConversations().then(setConvos).catch(() => {})
+          } else if (ev.type === 'stopped') {
+            gotFinal = true
+            // Server persisted the partial message — pull the canonical thread.
+            refetchMessages(key)
+            run.status = 'stopped'
+            if (ev.trace) run.steps = ev.trace
+            onRunUpdate({ ...run })
           } else if (ev.type === 'error') {
             setRuns((r) => ({ ...r, [key]: { ...(r[key] || {}), error: ev.message } }))
             run.status = 'error'
@@ -134,21 +204,16 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
         },
       })
     } catch (e) {
-      if (e.name === 'AbortError') {
-        run.status = 'stopped'
-        onRunUpdate({ ...run })
-        const partial = run.steps.length
-          ? `⏹ Stopped by you after: ${run.steps.map((s) => `${s.agent} (${s.label})`).join(' → ')}. The last completed step is in the Observability tab.`
-          : '⏹ Stopped by you before any agent finished.'
-        setChats((c) => ({ ...c, [key]: [...(c[key] || []), { role: 'assistant', content: partial }] }))
-        getConversations().then(setConvos).catch(() => {})
-      } else if (!gotFinal) {
+      // The run itself lives server-side; a dropped viewer stream is not a dead
+      // run. Only surface real errors when no terminal event arrived.
+      if (e.name !== 'AbortError' && !gotFinal) {
         setRuns((r) => ({ ...r, [key]: { ...(r[key] || {}), error: String(e.message || e) } }))
         run.status = 'error'
         onRunUpdate({ ...run })
       }
     } finally {
       delete controllers.current[key]
+      delete stopFlags.current[key]
       setRuns((r) => ({ ...r, [key]: { ...(r[key] || {}), status: 'idle', plan: null } }))
     }
   }
@@ -197,7 +262,7 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
           ))}
           {convos.length === 0 && <p className="hint pad">Your past chats will appear here.</p>}
         </div>
-        {anyRunning && <p className="hint pad">⚡ Runs keep going while you browse other threads.</p>}
+        {anyRunning && <p className="hint pad">⚡ Runs keep going even if you switch threads or reload the page.</p>}
       </aside>
 
       <div className="chat-layout">
