@@ -130,9 +130,10 @@ async def analyst_node(state: CouncilState) -> dict:
 async def reviewer_node(state: CouncilState) -> dict:
     llm = build_llm(state.get("settings"))
     user = (
-        f"ORIGINAL BRIEF:\n{state.get('brief', '')}\n\n"
+        f"USER'S ORIGINAL ASK:\n{state.get('user_input', '')}\n\n"
+        f"INTAKE BRIEF (user context):\n{state.get('brief', '')}\n\n"
         f"ANALYST'S DRAFT:\n{state.get('draft', '')}\n\n"
-        "Review it now."
+        "Review it now — contextualize the framework to this task first."
     )
     resp = await llm.ainvoke([SystemMessage(content=_sys(state, "reviewer")),
                               HumanMessage(content=user)])

@@ -23,6 +23,7 @@ Initial build session (2026-08-22): scaffolded whole app from user spec + power-
 - 2026-08-22 — Conversational memory in ALS Supabase Postgres, `mra_` tables, in-memory fallback — never hard-fail on DB.
 - 2026-08-22 — Default model claude-opus-5 (per claude-api skill); dropdown incl. sonnet-5, haiku-4-5, GPT (BYO key).
 - 2026-08-22 — Frontend dist/ committed to repo — Render python env has no node build step.
+- 2026-08-22 — Vera (A2) rebuilt on user's Assess→Diagnose→Augment DOCX framework (contextualize-first, max 6 failure modes, gap/why/type/augment format); gets user's original ask + brief + draft. Cleo (A3) rebuilt as 10-category client reviewer (value prop, objective fit, structure, actionability, evidence, quantification, risk, clarity, hygiene, completeness). PROMPTS_VERSION gate (v2) force-refreshes cached browser prompts on bump — wipes user edits on upgrade, by design.
 
 ## Session efficiency
 (pending first milestone)

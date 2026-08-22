@@ -33,7 +33,14 @@ export default function App() {
     getDefaults()
       .then((d) => {
         setDefaults(d)
-        setAgents((cur) => cur || d.agents)
+        // Server prompt upgrades replace cached prompts (incl. user edits) once per version bump.
+        const seenVersion = localStorage.getItem('mra_prompts_v')
+        if (String(d.prompts_version) !== seenVersion) {
+          localStorage.setItem('mra_prompts_v', String(d.prompts_version))
+          setAgents(d.agents)
+        } else {
+          setAgents((cur) => cur || d.agents)
+        }
         setSettings((cur) => (cur.model ? cur : { ...cur, model: d.default_model }))
       })
       .catch(() => setDefaults({ error: true }))

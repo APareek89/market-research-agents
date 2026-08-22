@@ -15,7 +15,7 @@ from . import db
 from .extract import extract_file, ExtractError
 from .graph import GRAPH, NODE_AGENT, NODE_LABEL, NODE_OUTPUT_KEY, plan_for
 from .llm import ConfigError
-from .prompts import CLAUDE_MODELS, DEFAULT_AGENTS, DEFAULT_MODEL, OPENAI_MODELS
+from .prompts import CLAUDE_MODELS, DEFAULT_AGENTS, DEFAULT_MODEL, OPENAI_MODELS, PROMPTS_VERSION
 
 app = FastAPI(title="Market Research Agent Council")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -34,6 +34,7 @@ def sse(obj: dict) -> str:
 async def defaults():
     return {
         "agents": DEFAULT_AGENTS,
+        "prompts_version": PROMPTS_VERSION,
         "models": {"claude": CLAUDE_MODELS, "openai": OPENAI_MODELS},
         "default_model": DEFAULT_MODEL,
         "default_provider": "claude",
