@@ -160,8 +160,23 @@ body {
 .msg.user .msg-body { background: #1b2a26; border-color: #2c463e; white-space: pre-wrap; }
 .md h1, .md h2, .md h3 { font-family: 'Fraunces', serif; margin: .8em 0 .35em; }
 .md p { margin: .5em 0; }
-.md table { border-collapse: collapse; margin: .6em 0; }
-.md th, .md td { border: 1px solid var(--line); padding: 5px 9px; font-size: 13.5px; }
+.md table { border-collapse: collapse; margin: .7em 0; width: 100%; }
+.md th {
+  background: var(--panel-2); color: var(--accent); text-align: left;
+  border: 1px solid var(--line); padding: 6px 10px; font-size: 13px;
+}
+.md td { border: 1px solid var(--line); padding: 6px 10px; font-size: 13.5px; }
+.md tr:nth-child(even) td { background: rgba(255, 255, 255, .025); }
+.mermaid-holder {
+  background: #141a20; border: 1px solid var(--line); border-radius: 10px;
+  padding: 14px; margin: .8em 0; overflow-x: auto; text-align: center;
+}
+.mermaid-holder svg { max-width: 100%; height: auto; }
+.run-dot {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--accent); margin-right: 6px; animation: pulse 1.2s ease-in-out infinite;
+}
+@keyframes pulse { 50% { opacity: .3; } }
 .md code { background: #0d1116; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
 .md a { color: var(--accent-2); }
 

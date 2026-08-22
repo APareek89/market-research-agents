@@ -22,11 +22,11 @@ export async function getMessages(cid) {
   return r.json()
 }
 
-export async function exportReport(format, title, markdown) {
+export async function exportReport(format, title, markdown, diagrams = []) {
   const resp = await fetch('/api/export', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ format, title, markdown }),
+    body: JSON.stringify({ format, title, markdown, diagrams }),
   })
   if (!resp.ok) throw new Error('Export failed')
   const blob = await resp.blob()

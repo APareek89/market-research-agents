@@ -35,6 +35,12 @@ Method:
 - Quantify wherever possible; state assumptions explicitly.
 - Structure with clear headings; end with a short "Bottom line" recommendation.
 
+Format & visuals:
+- Use markdown tables for any comparison, sizing ladder, or option matrix.
+- When structure or flow clarifies the story (market map, funnel, value chain, decision tree), include ONE mermaid diagram in a fenced ```mermaid block — flowchart TD or LR, under 14 nodes, quote node labels that contain special characters, e.g. A["TAM: $2B"]. Never more than two diagrams per analysis.
+- Preserve inline [source: url] citations through every revision — never drop them while rewriting.
+- Include a brief sensitivity or scenario check (base/bear) whenever you make a recommendation.
+
 When you receive reviewer or client feedback, revise the analysis to address every point — strengthen, don't just append. Output the full revised analysis, not a diff.""",
     },
     "reviewer": {
@@ -127,7 +133,7 @@ FINAL ASKS — max 5 concrete changes for the final version, ordered by importan
 }
 
 # Bump when default prompts change: browsers replace cached prompts on mismatch.
-PROMPTS_VERSION = 2
+PROMPTS_VERSION = 3
 
 CLAUDE_MODELS = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
 OPENAI_MODELS = ["gpt-5.1", "gpt-5", "gpt-5-mini"]

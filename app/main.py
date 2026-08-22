@@ -242,15 +242,16 @@ async def export_report(payload: dict):
     fmt = (payload.get("format") or "pdf").lower()
     title = (payload.get("title") or "Market research report").strip()[:160]
     markdown = payload.get("markdown") or ""
+    diagrams = payload.get("diagrams") or []
     if not markdown.strip():
         return JSONResponse({"error": "Nothing to export."}, status_code=400)
     try:
         if fmt == "pptx":
-            data = to_pptx(title, markdown)
+            data = to_pptx(title, markdown, diagrams)
             media = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
             fname = "agent-council-report.pptx"
         else:
-            data = to_pdf(title, markdown)
+            data = to_pdf(title, markdown, diagrams)
             media = "application/pdf"
             fname = "agent-council-report.pdf"
     except Exception as e:  # noqa: BLE001

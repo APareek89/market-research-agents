@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { renderMd } from '../md.js'
+import { MdContent } from '../md.jsx'
 
 export default function ObservabilityTab({ runs }) {
   const [openStep, setOpenStep] = useState(null) // `${runId}:${idx}`
@@ -35,7 +35,7 @@ export default function ObservabilityTab({ runs }) {
                     <span className="flow-time">{s.elapsed}s{s.model ? ` · ${s.model.replace('claude-', '')}` : ''}</span>
                     <span className="flow-caret">{open ? '▾' : '▸'}</span>
                   </button>
-                  {open && <div className="flow-output md" dangerouslySetInnerHTML={renderMd(s.output)} />}
+                  {open && <div className="flow-output"><MdContent text={s.output} /></div>}
                   {i < run.steps.length - 1 && <div className="flow-arrow">↓</div>}
                 </div>
               )
