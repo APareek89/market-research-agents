@@ -17,7 +17,7 @@ from .export import to_pdf, to_pptx
 from .extract import extract_file, ExtractError
 from .graph import MAX_CUSTOM_AGENTS
 from .llm import ConfigError, build_llm, DEFAULT_AGENT_MODELS, HF_MODELS
-from .prompts import CLAUDE_MODELS, DEFAULT_AGENTS, OPENAI_MODELS, PROMPTS_VERSION
+from .prompts import CLAUDE_MODELS, DEFAULT_AGENTS, EXPERT_AGENTS, OPENAI_MODELS, PROMPTS_VERSION
 
 app = FastAPI(title="Market Research Agent Council")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -26,6 +26,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 @app.on_event("startup")
 async def startup():
     app.state.db_mode = await db.init_db()
+    app.state.frameworks_available = await db.count_frameworks()
 
 
 def sse(obj: dict) -> str:
@@ -45,6 +46,8 @@ def error_stream(message: str) -> StreamingResponse:
 async def defaults():
     return {
         "agents": DEFAULT_AGENTS,
+        "expert_agents": EXPERT_AGENTS,
+        "frameworks_available": getattr(app.state, "frameworks_available", 0),
         "prompts_version": PROMPTS_VERSION,
         "models": {"claude": CLAUDE_MODELS, "openai": OPENAI_MODELS, "hf": HF_MODELS},
         "default_model": "auto",

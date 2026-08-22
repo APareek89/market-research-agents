@@ -271,7 +271,7 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
             <label className={toggles.reviewer ? 'toggle on' : 'toggle'}>
               <input type="checkbox" checked={toggles.reviewer}
                 onChange={(e) => setToggles({ ...toggles, reviewer: e.target.checked })} />
-              <span className="knob" /> {agents.reviewer?.name || 'Reviewer'} <em>(boss review)</em>
+              <span className="knob" /> {agents.reviewer?.expert_mode ? '★ ' : ''}{agents.reviewer?.name || 'Reviewer'} <em>(boss review)</em>
             </label>
             {customAgents.map((c) => (
               <label key={c.id} className={(toggles.custom || {})[c.id] ? 'toggle on custom' : 'toggle custom'}>
@@ -283,7 +283,7 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
             <label className={toggles.client ? 'toggle on' : 'toggle'}>
               <input type="checkbox" checked={toggles.client}
                 onChange={(e) => setToggles({ ...toggles, client: e.target.checked })} />
-              <span className="knob" /> {agents.client?.name || 'Client'} <em>(client review)</em>
+              <span className="knob" /> {agents.client?.expert_mode ? '★ ' : ''}{agents.client?.name || 'Client'} <em>(client review)</em>
             </label>
           </div>
           <div className="crew-line">Active crew: {activeAgents.join(' → ')}</div>

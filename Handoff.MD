@@ -7,9 +7,8 @@ last-synced: 001b41e
 2026-08-22: initial build + ship (see git log). Later session: backlog item 1 — server-side run persistence — built, QA'd locally, deployed.
 
 ## Current state
-- ✅ SHIPPED v1: https://agent-council.onrender.com (Render free, srv-da4jio49v7es738cps10, Singapore; cold start ~1 min after idle). GitHub: APareek89/market-research-agents (main). Full QA local+prod passed (see Loop.MD journal).
-- ✅ Server-side run persistence: runs are detached asyncio tasks (app/runs.py) writing every SSE event to in-memory registry + mra_runs JSONB; reload mid-run re-attaches (GET /api/runs/{cid}/stream replay, /api/runs/active on mount); Stop = POST /api/runs/{cid}/stop, partial ⏹ msg persisted server-side. QA'd in browser: reload mid-run ✓, final on re-attached stream ✓, stop ✓, mra_runs rows ✓.
-- Local dev: preview "mra" port 8620, "mra-2" port 8621 (added for concurrent sessions; config in BOTH repo and ~/Documents/.claude/launch.json — preview tool reads the latter). Env in .env (gitignored).
+- ✅ Shipped: v1 live at https://agent-council.onrender.com (srv-da4jio49v7es738cps10, cold start ~1min) + server-side run persistence + Expert Mode lens retrieval (see git log & Learning.MD; QA in Loop.MD journal).
+- Local dev: preview "mra" port 8620, "mra-2" port 8621 (config in BOTH repo and ~/Documents/.claude/launch.json — preview tool reads the latter). Env in .env (gitignored). KB re-ingest: `.venv/bin/python scripts/ingest_kb.py` (local + prod share ALS Supabase, so one ingest serves both).
 
 ## Pending points (user backlog, priority order)
 - [ ] 2. Speed toggle "fast council": Vera+Cleo review draft in parallel, single combined revision (~35% faster).
@@ -31,6 +30,7 @@ last-synced: 001b41e
 - 2026-08-22 — Graph rebuilt DYNAMIC (build_stages per request): ordered review stages; custom agents (≤3) as reviewer/transformer; per-agent model select (agent > global pin > auto role default: haiku intake / sonnet analyst / opus reviewers).
 - 2026-08-22 — Vera = Assess→Diagnose→Augment framework review; Cleo = 10-category client reviewer; PROMPTS_VERSION gate (v2) force-refreshes cached prompts on bump.
 - 2026-08-22 — Server-side run persistence (user-specified arch): detached asyncio run tasks outlive requests; events → registry + mra_runs Postgres (best-effort); SSE viewers = tails w/ replay cursor + 15s heartbeat; client disconnect ≠ stop; Stop is explicit endpoint; startup marks orphaned 'running' rows error. Single-process registry — fine on Render single worker.
+- 2026-08-22 — Expert Mode lens retrieval (per kb/RETRIEVAL_PIPELINE_SPEC.md, followed exactly): mra_frameworks mirrors kb/frameworks/ (20 rows, ingest_kb.py; vector(1024) col unused until >50); lens_prep node parallel w/ draft, gated on enabled&&expert_mode (reviewer/client ONLY, never custom); haiku router (json_schema; needs top-level `title` in schema — langchain quirk) + one sonnet composer → blind interrogation plan ≤9q/≤5q, [via X] tags; server enforces EXPERT_AGENTS prompt in build_stages (client prompt ignored; verified w/ marker-prompt E2E); UI: ★ toggle + banner + read-only prompt, user's own prompt preserved under it; ALL failures degrade silently to no-plan (DB-down E2E ✓). KB frontmatter is not strict YAML — kb.py uses a tolerant line parser; never "fix" the KB files.
 
 ## Session efficiency
 🎯 ~80% feature · 🔧 ~15% support (browser click coordinate-space + second dev-server port for concurrent session) · 🔁 ~5% rework

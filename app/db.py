@@ -129,6 +129,47 @@ async def get_run(conversation_id: str) -> dict | None:
         return None
 
 
+# ---- framework KB reads (mirror of kb/frameworks/; see kb.py) ----
+# All best-effort: a missing table or dead DB returns empty and the caller
+# degrades to no-lens behavior — never block a run on KB problems.
+
+async def fetch_framework_index(roles: list[str]) -> list[dict]:
+    """Compact router surface for frameworks usable by any of `roles` (vera/cleo)."""
+    if not _pool:
+        return []
+    try:
+        async with _pool.acquire() as con:
+            rows = await con.fetch(
+                "SELECT id, name, when_to_use, trigger_signals, reviewer "
+                "FROM mra_frameworks WHERE reviewer && $1::text[]", roles)
+        return [dict(r) for r in rows]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+async def fetch_frameworks(ids: list[str]) -> list[dict]:
+    if not _pool or not ids:
+        return []
+    try:
+        async with _pool.acquire() as con:
+            rows = await con.fetch(
+                "SELECT id, name, cluster, when_to_use, reviewer, body_md "
+                "FROM mra_frameworks WHERE id = ANY($1::text[])", ids)
+        return [dict(r) for r in rows]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+async def count_frameworks() -> int:
+    if not _pool:
+        return 0
+    try:
+        async with _pool.acquire() as con:
+            return await con.fetchval("SELECT count(*) FROM mra_frameworks") or 0
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 async def get_history(conversation_id: str, limit: int = 12) -> list[dict]:
     """Last N user/assistant messages (content only) for model context."""
     msgs = await get_messages(conversation_id)

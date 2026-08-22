@@ -13,7 +13,7 @@
 <h1>Architecture Flow</h1>
 <h2>granularity: master</h2>
 <pre class="mermaid">%% granularity: master
-%% files: app/graph.py, app/main.py, app/runs.py, app/extract.py, app/tools.py, app/db.py, app/export.py
+%% files: app/graph.py, app/main.py, app/runs.py, app/lenses.py, app/kb.py, app/extract.py, app/tools.py, app/db.py, app/export.py
 flowchart TD
     U[User message + files + toggles + custom agents&lt;br/&gt;POST /api/chat multipart · Stop = POST /api/runs/id/stop] --&gt; RUN[FUNCTION detached run task · runs.py&lt;br/&gt;asyncio task outlives the request&lt;br/&gt;every event → registry + mra_runs JSONB]
     RUN --&gt; EX[FUNCTION extract_file&lt;br/&gt;in: PDF/DOCX/XLSX/CSV/img ≤15MB&lt;br/&gt;out: text caps 40k chars / base64 image]
@@ -22,12 +22,15 @@ flowchart TD
     MEM --&gt;|history last 12 msgs| A0
     EX --&gt; A0[AGENT Scout · intake_node&lt;br/&gt;model: per-agent or auto=haiku&lt;br/&gt;out: research brief]
     A0 --&gt; A1[AGENT Astra · analyst_node&lt;br/&gt;tools: web_search, web_fetch max 6 iters&lt;br/&gt;auto=sonnet · out: draft analysis]
-    A1 --&gt; ST{{Dynamic review stages&lt;br/&gt;build_stages: user-ordered mix of&lt;br/&gt;Vera reviewer · Cleo client · ≤3 custom agents}}
-    ST --&gt; SG[AGENT stage · make_stage_node&lt;br/&gt;reviewer mode: feedback → Astra revise pass&lt;br/&gt;transformer mode: output REPLACES analysis&lt;br/&gt;auto: opus core / sonnet custom]
+    A0 --&gt; LP[AGENT lens_prep · lenses.py — PARALLEL with draft&lt;br/&gt;only when a core reviewer has Expert Mode ON&lt;br/&gt;haiku router picks ≤3 Vera / ≤2 Cleo lenses from mra_frameworks index&lt;br/&gt;sonnet composes blind interrogation plan ≤9q Vera / ≤5q Cleo, lens-tagged&lt;br/&gt;ANY failure → no plan, run degrades to today silently]
+    KB[(mra_frameworks · 20 rows&lt;br/&gt;mirror of kb/frameworks/*.md&lt;br/&gt;ingest: scripts/ingest_kb.py&lt;br/&gt;embedding vector 1024 unused until &gt;50)] --&gt;|index + whole rows| LP
+    A1 --&gt; ST{{Dynamic review stages&lt;br/&gt;build_stages: user-ordered mix of&lt;br/&gt;Vera reviewer · Cleo client · ≤3 custom agents&lt;br/&gt;Expert Mode: server swaps in EXPERT_AGENTS prompt,&lt;br/&gt;client-sent prompt IGNORED · custom agents never expert}}
+    LP --&gt;|lens_plan joins at first stage| ST
+    ST --&gt; SG[AGENT stage · make_stage_node&lt;br/&gt;expert stages get interrogation plan appended:&lt;br/&gt;two-phase answered/dodged/never-considered + lens tags&lt;br/&gt;reviewer mode: feedback → Astra revise pass&lt;br/&gt;transformer mode: output REPLACES analysis]
     SG --&gt;|next stage| ST
-    ST --&gt;|stages done| FIN[final = current analysis&lt;br/&gt;SSE node_complete + final events]
+    ST --&gt;|stages done| FIN[final = current analysis&lt;br/&gt;SSE node_complete + final events&lt;br/&gt;lens_prep appears as Router node in plan/trace]
     FIN --&gt; MEM2[(save assistant msg + full trace JSONB&lt;br/&gt;stop → partial ⏹ msg persisted server-side)]
-    FIN --&gt; UI[Chat renders final + export bar&lt;br/&gt;Observability renders trace + models]
+    FIN --&gt; UI[Chat renders final + export bar&lt;br/&gt;Observability renders trace + models + lens output]
     UI --&gt; XP[FUNCTION /api/export&lt;br/&gt;fpdf2 PDF · python-pptx PPT&lt;br/&gt;from final markdown]
 </pre>
 <script type="module">

@@ -133,7 +133,7 @@ function StagePipeline({ agents, customAgents, stageOrder, setStageOrder, toggle
   )
 }
 
-export default function PromptsTab({ agents, defaults, setAgents, customAgents, setCustomAgents, stageOrder, setStageOrder, toggles, setToggles, models, maxCustom, settings }) {
+export default function PromptsTab({ agents, defaults, expertAgents, setAgents, customAgents, setCustomAgents, stageOrder, setStageOrder, toggles, setToggles, models, maxCustom, settings }) {
   const [active, setActive] = useState('analyst') // core key or custom id
   const [drafts, setDrafts] = useState({})
   const [configuring, setConfiguring] = useState(false)
@@ -145,6 +145,12 @@ export default function PromptsTab({ agents, defaults, setAgents, customAgents, 
     : (agents[active] || { name: '', system_prompt: '' })
   const draft = drafts[active] || saved
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved)
+
+  // Expert Mode: reviewer/client only. Prompt becomes system-managed (server
+  // enforces too) — the user's own prompt stays saved underneath, untouched.
+  const isReview = active === 'reviewer' || active === 'client'
+  const expertOn = isReview && !!draft.expert_mode
+  const expertPrompt = expertOn ? (expertAgents[active]?.system_prompt || '') : ''
 
   function update(field, value) {
     setDrafts({ ...drafts, [active]: { ...draft, [field]: value } })
@@ -250,22 +256,33 @@ export default function PromptsTab({ agents, defaults, setAgents, customAgents, 
                 </select>
               </label>
             )}
-            <button className="ghost configure" onClick={() => setConfiguring(true)}>⚙ Configure with AI</button>
+            {isReview && (
+              <label className="expert-toggle" title="Retrieves task-specific framework lenses per run; prompt becomes system-managed">
+                <input type="checkbox" checked={!!draft.expert_mode}
+                  onChange={(e) => update('expert_mode', e.target.checked)} />
+                ★ Expert Mode
+              </label>
+            )}
+            <button className="ghost configure" disabled={expertOn} onClick={() => setConfiguring(true)}>⚙ Configure with AI</button>
             <button className="save" disabled={!dirty} onClick={save}>
               {dirty ? 'Save changes' : 'Saved'}
             </button>
             {dirty && <button className="ghost" onClick={() => clearDraft(active)}>Discard edits</button>}
-            <button className="ghost" onClick={resetToDefault}>{isCustom ? 'Insert template' : 'Reset to default'}</button>
+            <button className="ghost" disabled={expertOn} onClick={resetToDefault}>{isCustom ? 'Insert template' : 'Reset to default'}</button>
             {isCustom && <button className="ghost danger" onClick={() => deleteCustom(active)}>Delete agent</button>}
           </div>
           <label className="editor-label">
-            System prompt — {isCustom ? `${draft.name || 'Custom agent'} (yours)` : defaults[active]?.role}
+            System prompt — {expertOn ? `${expertAgents[active]?.role || 'Expert'}` : (isCustom ? `${draft.name || 'Custom agent'} (yours)` : defaults[active]?.role)}
             {dirty && <span className="unsaved-tag"> · unsaved changes</span>}
           </label>
+          {expertOn && (
+            <div className="expert-banner">★ Expert Mode — prompt is system-managed; task-specific framework lenses are retrieved and injected per run. Toggle off to edit your own prompt.</div>
+          )}
           <textarea
-            className="prompt-area"
-            value={draft.system_prompt}
-            onChange={(e) => update('system_prompt', e.target.value)}
+            className={expertOn ? 'prompt-area expert-locked' : 'prompt-area'}
+            value={expertOn ? expertPrompt : draft.system_prompt}
+            readOnly={expertOn}
+            onChange={(e) => { if (!expertOn) update('system_prompt', e.target.value) }}
             placeholder={CUSTOM_TEMPLATE}
             spellCheck={false}
           />

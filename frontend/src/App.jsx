@@ -105,6 +105,7 @@ export default function App() {
           <PromptsTab
             agents={agents || {}}
             defaults={defaults.agents}
+            expertAgents={defaults.expert_agents || {}}
             setAgents={setAgents}
             customAgents={customAgents}
             setCustomAgents={setCustomAgents}

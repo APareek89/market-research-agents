@@ -8,17 +8,25 @@ request from the stage list, so users can insert/reorder agents freely.
 """
 
 import asyncio
-from typing import TypedDict
+from typing import Annotated, TypedDict
 
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph import END, START, StateGraph
 
+from .lenses import prepare_lens_plans
 from .llm import build_llm
+from .prompts import EXPERT_AGENTS
 from .tools import ANALYST_TOOLS
 
 MAX_TOOL_ITERS = 6
 MAX_TOOL_ITERS_REVISE = 3  # revise passes rarely need fresh research; cap the loop for latency
 MAX_CUSTOM_AGENTS = 3
+
+
+def _last_write(a, b):
+    """Reducer: analyst and lens_prep run in the same superstep and both write
+    last_output — last write wins (the SSE trace reads per-node deltas, not state)."""
+    return b
 
 
 class CouncilState(TypedDict, total=False):
@@ -30,8 +38,9 @@ class CouncilState(TypedDict, total=False):
     settings: dict
     brief: str
     analysis: str           # current best analysis
-    last_output: str        # what the node just produced (for trace/SSE)
+    last_output: Annotated[str, _last_write]  # what the node just produced (for trace/SSE)
     feedback: dict          # stage_id -> feedback text
+    lens_plan: dict         # stage_id -> {lenses, questions, text} (expert mode only)
 
 
 # ---------- helpers ----------
@@ -122,16 +131,17 @@ def build_stages(cfg: dict) -> list[dict]:
 
     stages = []
     for key in order:
-        if key == "reviewer" and cfg.get("enable_reviewer"):
-            a = agents.get("reviewer") or {}
-            stages.append({"id": "reviewer", "key": "reviewer", "name": a.get("name", "Reviewer"),
-                           "system_prompt": a.get("system_prompt", ""), "model": a.get("model"),
-                           "agent_key": "reviewer", "revise": True, "custom": False})
-        elif key == "client" and cfg.get("enable_client"):
-            a = agents.get("client") or {}
-            stages.append({"id": "client", "key": "client", "name": a.get("name", "Client"),
-                           "system_prompt": a.get("system_prompt", ""), "model": a.get("model"),
-                           "agent_key": "client", "revise": True, "custom": False})
+        if key in ("reviewer", "client") and cfg.get(f"enable_{key}"):
+            a = agents.get(key) or {}
+            # Expert Mode: the SERVER owns the prompt — any client-sent
+            # system_prompt is ignored (enforcement lives here, not in the UI).
+            expert = bool(a.get("expert_mode"))
+            prompt = EXPERT_AGENTS[key]["system_prompt"] if expert else a.get("system_prompt", "")
+            stages.append({"id": key, "key": key,
+                           "name": a.get("name", "Reviewer" if key == "reviewer" else "Client"),
+                           "system_prompt": prompt, "model": a.get("model"),
+                           "agent_key": key, "revise": True, "custom": False,
+                           "expert": expert})
         elif key in customs:
             c = customs[key]
             stages.append({"id": f"c_{key}", "key": key, "name": (c.get("name") or "Custom agent").strip() or "Custom agent",
@@ -141,12 +151,21 @@ def build_stages(cfg: dict) -> list[dict]:
     return stages
 
 
+def expert_stage_ids(stages: list[dict]) -> list[str]:
+    return [st["id"] for st in stages if st.get("expert")]
+
+
 def node_sequence(stages: list[dict]) -> list[dict]:
     """Flat node list for the plan event / trace labels."""
     seq = [
         {"node": "intake", "agent_key": "intake", "label": "Intake brief", "model_agent": ("intake", None)},
         {"node": "analyst", "agent_key": "analyst", "label": "Draft analysis", "model_agent": ("analyst", None)},
     ]
+    if expert_stage_ids(stages):
+        # Runs in parallel with the draft but finishes first — listed between
+        # intake and analyst so the progress UI's done-pointer stays truthful.
+        seq.insert(1, {"node": "lens_prep", "agent_key": "router", "label": "Lens selection",
+                       "model_agent": ("router", None)})
     for i, st in enumerate(stages):
         label = "Client feedback" if st["id"] == "client" else (
             "Reviewer critique" if st["id"] == "reviewer" else
@@ -195,6 +214,17 @@ async def analyst_node(state: CouncilState) -> dict:
     return {"analysis": draft, "last_output": draft}
 
 
+def make_lens_prep_node(expert_stages: list[dict]):
+    """Blind interrogation-plan prep, parallel with the analyst draft. Only for
+    expert-mode core reviewers (never custom agents). Never raises."""
+    async def lens_prep_node(state: CouncilState) -> dict:
+        lens_plan, summary = await prepare_lens_plans(
+            expert_stages, state.get("user_input", ""), state.get("brief", ""),
+            state.get("settings") or {})
+        return {"lens_plan": lens_plan, "last_output": summary}
+    return lens_prep_node
+
+
 def make_stage_node(st: dict):
     async def stage_node(state: CouncilState) -> dict:
         llm = build_llm(state.get("settings"), st["agent_key"], st.get("model"))
@@ -203,11 +233,13 @@ def make_stage_node(st: dict):
             task = "Give your review/feedback now. Do not rewrite the analysis yourself."
         else:
             task = "Produce your full transformed version of the analysis now — your output replaces the current analysis."
+        plan = None if st["custom"] else (state.get("lens_plan") or {}).get(st["id"])
+        plan_block = f"{plan['text']}\n\n" if plan else ""
         user = (
             f"USER'S ORIGINAL ASK:\n{state.get('user_input', '')}\n\n"
             f"INTAKE BRIEF (user context):\n{state.get('brief', '')}\n\n"
             f"CURRENT ANALYSIS:\n{state.get('analysis', '')}\n\n"
-            f"{task}"
+            f"{plan_block}{task}"
         )
         resp = await llm.ainvoke([SystemMessage(content=system), HumanMessage(content=user)])
         out = _text_of(resp)
@@ -254,4 +286,11 @@ def build_council_graph(stages: list[dict]):
             g.add_edge(st["id"], rid)
             prev = rid
     g.add_edge(prev, END)
+    experts = [st for st in stages if st.get("expert")]
+    if experts:
+        # Blind prep runs in parallel with the draft; both edges join at the
+        # first stage node (it waits for analyst AND lens_prep).
+        g.add_node("lens_prep", make_lens_prep_node(experts))
+        g.add_edge("intake", "lens_prep")
+        g.add_edge("lens_prep", stages[0]["id"])
     return g.compile()

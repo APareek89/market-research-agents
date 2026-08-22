@@ -12,6 +12,7 @@ import uuid
 from . import db
 from .extract import ExtractError, extract_file
 from .graph import build_council_graph, build_stages, node_sequence
+from .lenses import ROUTER_MODEL
 from .llm import ConfigError, resolve_model
 from .prompts import DEFAULT_AGENTS
 
@@ -138,7 +139,7 @@ async def execute_run(run: Run, *, message: str, raw_files: list, cfg: dict):
         agents = {**DEFAULT_AGENTS}
         for key, val in (cfg.get("agents") or {}).items():
             if key in agents and isinstance(val, dict):
-                agents[key] = {**agents[key], **{k: v for k, v in val.items() if k in ("name", "system_prompt", "model")}}
+                agents[key] = {**agents[key], **{k: v for k, v in val.items() if k in ("name", "system_prompt", "model", "expert_mode")}}
         settings = cfg.get("settings") or {}
         stages = build_stages({**cfg, "agents": agents})
         seq = node_sequence(stages)
@@ -150,6 +151,8 @@ async def execute_run(run: Run, *, message: str, raw_files: list, cfg: dict):
         await db.add_message(cid, "user", user_record)
 
         def node_display(n):
+            if n["agent_key"] == "router":
+                return "Router", ROUTER_MODEL
             if n.get("stage"):
                 name = n["stage"]["name"]
             else:
