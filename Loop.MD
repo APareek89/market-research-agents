@@ -8,7 +8,7 @@ When the first working draft runs end-to-end, ASK the user: "First draft is work
 
 ## Rung 1 — existing checks (cheapest, run first)
 - `python -m compileall app` (syntax)
-- `curl -s localhost:8600/api/defaults | python3 -m json.tool` (API up + defaults shape)
+- `curl -s localhost:8620/api/defaults | python3 -m json.tool` (API up + defaults shape)
 
 ## FREE evals (EXAMPLES — replace/extend with your own Q→expected-A pairs)
 1. GET /api/defaults → returns 4 agents each with `name` + `system_prompt`, and a models list containing `claude-opus-5`.

@@ -7,11 +7,12 @@ last-synced: (pre-first-commit)
 Initial build session (2026-08-22): scaffolded whole app from user spec + power-coding setup.
 
 ## Current state
-- 🚧 Building v1: FastAPI backend (app/), React frontend (frontend/), power-coding files done.
+- ✅ v1 built & local QA passed: all 4 tabs, full 6-node run (haiku), toggles-off path, prompt override, bad-key error path, extraction unit tests, Postgres persistence across reload (Supabase mra_ tables live).
+- 🚧 Deploy: push to GitHub (APareek89) + Render (free), then smoke test.
 
 ## Pending points
-- [ ] Finish v1 build, local QA, push to GitHub (APareek89), deploy to Render, smoke test.
-- [ ] Offer the Loop (Loop.MD status: waiting_for_first_draft) once first draft works.
+- [ ] Deploy to Render, smoke test prod URL.
+- [ ] Offer the Loop (Loop.MD status: waiting_for_first_draft) — first draft IS working; ask user next session if not answered.
 
 ## Decisions
 - 2026-08-22 — FastAPI + Python LangGraph + React(Vite) static, single Render service — canonical LangGraph; simplest deploy. (user approved)
