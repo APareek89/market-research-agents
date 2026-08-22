@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from . import db
 from .extract import extract_file, ExtractError
 from .graph import GRAPH, NODE_AGENT, NODE_LABEL, NODE_OUTPUT_KEY, plan_for
-from .llm import ConfigError
+from .llm import ConfigError, resolve_model, DEFAULT_AGENT_MODELS
 from .prompts import CLAUDE_MODELS, DEFAULT_AGENTS, DEFAULT_MODEL, OPENAI_MODELS, PROMPTS_VERSION
 
 app = FastAPI(title="Market Research Agent Council")
@@ -36,7 +36,8 @@ async def defaults():
         "agents": DEFAULT_AGENTS,
         "prompts_version": PROMPTS_VERSION,
         "models": {"claude": CLAUDE_MODELS, "openai": OPENAI_MODELS},
-        "default_model": DEFAULT_MODEL,
+        "default_model": "auto",
+        "agent_model_defaults": DEFAULT_AGENT_MODELS,
         "default_provider": "claude",
         "server_key_available": bool(os.environ.get("ANTHROPIC_API_KEY")),
         "db": getattr(app.state, "db_mode", "unknown"),
@@ -110,7 +111,8 @@ async def chat(
 
             plan = plan_for(enable_reviewer, enable_client)
             yield sse({"type": "plan", "conversation_id": cid,
-                       "nodes": [{"node": n, "agent": agents[NODE_AGENT[n]]["name"], "label": NODE_LABEL[n]} for n in plan]})
+                       "nodes": [{"node": n, "agent": agents[NODE_AGENT[n]]["name"], "label": NODE_LABEL[n],
+                                  "model": resolve_model(settings, NODE_AGENT[n])} for n in plan]})
 
             state = {
                 "user_input": message.strip() or f"(user sent file(s): {', '.join(file_names)})",
@@ -139,7 +141,8 @@ async def chat(
                     if (delta or {}).get("final"):
                         final_text = delta["final"]
                     step = {"node": node, "agent": agents[NODE_AGENT[node]]["name"],
-                            "label": NODE_LABEL[node], "output": out, "elapsed": elapsed}
+                            "label": NODE_LABEL[node], "output": out, "elapsed": elapsed,
+                            "model": resolve_model(settings, NODE_AGENT[node])}
                     trace.append(step)
                     yield sse({"type": "node_complete", **step})
 

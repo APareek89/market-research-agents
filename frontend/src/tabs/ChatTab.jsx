@@ -10,6 +10,7 @@ export default function ChatTab({ config, agents, toggles, setToggles, onRunComp
   const [input, setInput] = useState('')
   const [files, setFiles] = useState([])
   const [running, setRunning] = useState(false)
+  const [sentFileCount, setSentFileCount] = useState(0)
   const [plan, setPlan] = useState(null) // {nodes: [...], doneCount}
   const [error, setError] = useState('')
   const [conversationId, setConversationId] = useState(localStorage.getItem('mra_conversation') || '')
@@ -50,6 +51,7 @@ export default function ChatTab({ config, agents, toggles, setToggles, onRunComp
     const sendFiles = files
     setInput('')
     setFiles([])
+    setSentFileCount(sendFiles.length)
     setRunning(true)
     const runId = crypto.randomUUID()
     const run = { id: runId, at: new Date().toLocaleTimeString(), input: userText, steps: [], status: 'running' }
@@ -150,12 +152,13 @@ export default function ChatTab({ config, agents, toggles, setToggles, onRunComp
                 <span className="dot" />
                 <span className="prog-agent">{n.agent}</span>
                 <span className="prog-label">{n.label}</span>
+                {n.model && <span className="prog-model">{n.model.replace('claude-', '')}</span>}
                 {i === plan.done && <span className="spinner" />}
               </div>
             ))}
           </div>
         )}
-        {running && !plan && <div className="progress"><div className="prog-step active"><span className="dot" /><span className="prog-label">Reading your files…</span><span className="spinner" /></div></div>}
+        {running && !plan && <div className="progress"><div className="prog-step active"><span className="dot" /><span className="prog-label">{sentFileCount > 0 ? 'Reading your files…' : 'Briefing the council…'}</span><span className="spinner" /></div></div>}
         {error && <div className="error-box">⚠ {error}</div>}
         <div ref={bottomRef} />
       </div>

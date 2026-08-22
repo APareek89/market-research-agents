@@ -5,8 +5,11 @@ export default function SettingsTab({ settings, setSettings, defaults }) {
   const provider = settings.provider || 'claude'
 
   function setProvider(p) {
-    setSettings({ ...settings, provider: p, model: (models[p] || [])[0] || '' })
+    setSettings({ ...settings, provider: p, model: p === 'claude' ? 'auto' : (models[p] || [])[0] || '' })
   }
+
+  const amd = defaults.agent_model_defaults || {}
+  const autoLabel = `Auto — fast mix (${(amd.intake || 'haiku').replace('claude-', '')} intake · ${(amd.analyst || 'sonnet').replace('claude-', '')} analyst · ${(amd.reviewer || 'opus').replace('claude-', '')} reviewers)`
 
   return (
     <div className="settings-layout">
@@ -28,8 +31,9 @@ export default function SettingsTab({ settings, setSettings, defaults }) {
       <div className="field">
         <label>Model</label>
         <select value={settings.model} onChange={(e) => setSettings({ ...settings, model: e.target.value })}>
+          {provider === 'claude' && <option value="auto">{autoLabel}</option>}
           {(models[provider] || []).map((m) => (
-            <option key={m} value={m}>{m}</option>
+            <option key={m} value={m}>{m} (all agents)</option>
           ))}
         </select>
       </div>

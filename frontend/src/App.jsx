@@ -41,7 +41,12 @@ export default function App() {
         } else {
           setAgents((cur) => cur || d.agents)
         }
-        setSettings((cur) => (cur.model ? cur : { ...cur, model: d.default_model }))
+        setSettings((cur) => {
+          let s = cur.model ? cur : { ...cur, model: d.default_model }
+          // One-time migration to the per-agent "auto" default (Claude only).
+          if ((s.mv || 0) < 2) s = { ...s, model: s.provider === 'openai' ? s.model : 'auto', mv: 2 }
+          return s
+        })
       })
       .catch(() => setDefaults({ error: true }))
   }, [])

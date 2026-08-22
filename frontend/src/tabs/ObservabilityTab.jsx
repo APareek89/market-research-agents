@@ -32,7 +32,7 @@ export default function ObservabilityTab({ runs }) {
                   <button className="flow-node" onClick={() => setOpenStep(open ? null : key)}>
                     <span className="flow-agent">{s.agent}</span>
                     <span className="flow-label">{s.label}</span>
-                    <span className="flow-time">{s.elapsed}s</span>
+                    <span className="flow-time">{s.elapsed}s{s.model ? ` · ${s.model.replace('claude-', '')}` : ''}</span>
                     <span className="flow-caret">{open ? '▾' : '▸'}</span>
                   </button>
                   {open && <div className="flow-output md" dangerouslySetInnerHTML={renderMd(s.output)} />}

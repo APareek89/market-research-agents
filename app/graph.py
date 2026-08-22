@@ -99,7 +99,7 @@ async def _run_with_tools(llm, system: str, user_content: str) -> str:
 
 
 async def intake_node(state: CouncilState) -> dict:
-    llm = build_llm(state.get("settings"))
+    llm = build_llm(state.get("settings"), "intake")
     file_notes = "\n\n".join(
         f"--- Uploaded file: {f['name']} ---\n{f['text']}" for f in state.get("file_texts") or []
     ) or "(no document files uploaded)"
@@ -117,7 +117,7 @@ async def intake_node(state: CouncilState) -> dict:
 
 
 async def analyst_node(state: CouncilState) -> dict:
-    llm = build_llm(state.get("settings"))
+    llm = build_llm(state.get("settings"), "analyst")
     user = (
         f"RESEARCH BRIEF from the intake agent:\n{state['brief']}\n\n"
         f"CONVERSATION SO FAR (for continuity):\n{_history_text(state.get('history') or [])}\n\n"
@@ -128,7 +128,7 @@ async def analyst_node(state: CouncilState) -> dict:
 
 
 async def reviewer_node(state: CouncilState) -> dict:
-    llm = build_llm(state.get("settings"))
+    llm = build_llm(state.get("settings"), "reviewer")
     user = (
         f"USER'S ORIGINAL ASK:\n{state.get('user_input', '')}\n\n"
         f"INTAKE BRIEF (user context):\n{state.get('brief', '')}\n\n"
@@ -141,7 +141,7 @@ async def reviewer_node(state: CouncilState) -> dict:
 
 
 async def analyst_refine_node(state: CouncilState) -> dict:
-    llm = build_llm(state.get("settings"))
+    llm = build_llm(state.get("settings"), "analyst")
     reviewer_name = _agent(state, "reviewer").get("name", "the reviewer")
     user = (
         f"YOUR PREVIOUS DRAFT:\n{state.get('draft', '')}\n\n"
@@ -153,7 +153,7 @@ async def analyst_refine_node(state: CouncilState) -> dict:
 
 
 async def client_node(state: CouncilState) -> dict:
-    llm = build_llm(state.get("settings"))
+    llm = build_llm(state.get("settings"), "client")
     user = (
         f"THE RESEARCH I COMMISSIONED (brief):\n{state.get('brief', '')}\n\n"
         f"THE ANALYSIS DELIVERED TO ME:\n{_current_analysis(state)}\n\n"
@@ -165,7 +165,7 @@ async def client_node(state: CouncilState) -> dict:
 
 
 async def analyst_final_node(state: CouncilState) -> dict:
-    llm = build_llm(state.get("settings"))
+    llm = build_llm(state.get("settings"), "analyst")
     client_name = _agent(state, "client").get("name", "the client")
     user = (
         f"YOUR CURRENT ANALYSIS:\n{_current_analysis(state)}\n\n"
