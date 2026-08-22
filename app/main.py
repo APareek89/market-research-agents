@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, runs
-from .export import to_pdf, to_pptx
+from .export import pdf_engine, to_pdf, to_pptx
 from .extract import extract_file, ExtractError
 from .graph import MAX_CUSTOM_AGENTS
 from .llm import ConfigError, build_llm, DEFAULT_AGENT_MODELS, HF_MODELS
@@ -48,6 +48,7 @@ async def defaults():
         "agents": DEFAULT_AGENTS,
         "expert_agents": EXPERT_AGENTS,
         "frameworks_available": getattr(app.state, "frameworks_available", 0),
+        "pdf_engine": pdf_engine(),
         "prompts_version": PROMPTS_VERSION,
         "models": {"claude": CLAUDE_MODELS, "openai": OPENAI_MODELS, "hf": HF_MODELS},
         "default_model": "auto",

@@ -150,9 +150,177 @@ def _decode_diagrams(diagrams: list | None) -> list[bytes | None]:
     return out
 
 
-# ---------------- PDF ----------------
+# ---------------- PDF: Typst engine (primary) ----------------
+
+def pdf_engine() -> str:
+    try:
+        import typst  # noqa: F401
+        return "typst"
+    except Exception:  # noqa: BLE001
+        return "fpdf2"
+
+
+def _t_escape(text: str) -> str:
+    """Escape typst markup-mode specials in a plain text run. '/' included:
+    '//' opens a typst comment and would swallow every URL."""
+    out = []
+    for ch in text:
+        if ch in '\\#$*_`@<>[]~/':
+            out.append("\\" + ch)
+        else:
+            out.append(ch)
+    return "".join(out)
+
+
+def _t_inline(text: str) -> str:
+    """Markdown inline → typst: **bold** becomes *bold*, the rest escaped."""
+    parts = re.split(r"\*\*(.+?)\*\*", text)
+    out = []
+    for i, p in enumerate(parts):
+        out.append(f"*{_t_escape(p)}*" if i % 2 else _t_escape(p))
+    return "".join(out)
+
+
+_T_PREAMBLE = """
+#let dark = rgb("#171d24")
+#let gold = rgb("#e8b04b")
+#let muted = rgb("#6e7a86")
+#let rowfill = rgb("#f5f6f8")
+#set page("a4", margin: (top: 2.5cm, bottom: 2.3cm, x: 2.1cm),
+  header: context { if counter(page).get().first() > 1 [
+    #text(8pt, fill: muted)[__HEADER_TITLE__ #h(1fr) Agent Council]
+  ] },
+  footer: context [ #align(center, text(8.5pt, fill: muted, counter(page).display())) ])
+#set text(font: ("Libertinus Serif", "Linux Libertine", "DejaVu Sans"), size: 10.3pt, fill: rgb("#20262d"))
+#set par(justify: true, leading: 0.62em)
+#show heading.where(level: 1): it => block(above: 1.5em, below: 0.4em)[
+  #text(size: 16pt, weight: "bold", fill: dark, it.body)
+  #v(-0.5em)
+  #line(length: 2.1cm, stroke: 1.4pt + gold)
+]
+#show heading.where(level: 2): it => block(above: 1.3em, below: 0.4em)[
+  #text(size: 12.8pt, weight: "bold", fill: dark, it.body)
+  #v(-0.55em)
+  #line(length: 1.5cm, stroke: 1.1pt + gold)
+]
+#show heading.where(level: 3): it => block(above: 1.1em, below: 0.35em)[
+  #text(size: 11pt, weight: "bold", fill: dark, it.body)
+]
+#set list(marker: text(fill: gold, size: 7pt)[■], indent: 0.35em, body-indent: 0.55em)
+#set enum(indent: 0.35em, body-indent: 0.55em)
+#show link: it => text(fill: rgb("#2e64a0"), it)
+
+#block(width: 100%, fill: dark, inset: (x: 1.35cm, y: 1.15cm), radius: 3pt)[
+  #line(length: 1.2cm, stroke: 2pt + gold)
+  #v(0.35em)
+  #text(size: 19.5pt, weight: "bold", fill: white, font: ("Libertinus Serif", "Linux Libertine", "DejaVu Sans"))[__TITLE__]
+  #v(0.25em)
+  #text(size: 9pt, fill: gold)[Agent Council · market research, sharpened by review · __DATE__]
+]
+#v(0.9em)
+"""
+
+
+def _pdf_via_typst(title: str, markdown: str, diagrams: list | None = None) -> bytes:
+    import os
+    import tempfile
+
+    import typst
+
+    markdown, sources = _extract_sources(markdown)
+    items = _parse_md(markdown, keep_bold=True)
+    diagram_bytes = _decode_diagrams(diagrams)
+
+    body: list[str] = []
+    di = 0
+    i = 0
+    while i < len(items):
+        kind, payload = items[i]
+        if kind in ("bullet", "numbered"):
+            # consecutive items become one typst list/enum block
+            marker = "-" if kind == "bullet" else "+"
+            while i < len(items) and items[i][0] == kind:
+                text = items[i][1]
+                if kind == "numbered":
+                    text = re.sub(r"^\d+[.)]\s+", "", text)
+                body.append(f"{marker} {_t_inline(text)}")
+                i += 1
+            body.append("")
+            continue
+        if kind == "blank":
+            body.append("")
+        elif kind == "h1":
+            body.append(f"= {_t_inline(payload)}")
+        elif kind == "h2":
+            body.append(f"== {_t_inline(payload)}")
+        elif kind == "h3":
+            body.append(f"=== {_t_inline(payload)}")
+        elif kind == "table":
+            rows = payload
+            ncols = max(len(r) for r in rows)
+            rows = [r + [""] * (ncols - len(r)) for r in rows]
+            cells = []
+            for ri, r in enumerate(rows):
+                for c in r:
+                    cell = _t_inline(c)
+                    if ri == 0:
+                        cell = f'text(fill: white, weight: "bold", size: 8.6pt)[{cell}]'
+                    else:
+                        cell = f"text(size: 8.8pt)[{cell}]"
+                    cells.append(f"[#{cell}]")
+            body.append(
+                "#block(above: 0.9em, below: 0.9em)[#table(\n"
+                f"  columns: {ncols},\n"
+                "  inset: (x: 7pt, y: 5.5pt),\n"
+                "  stroke: (x, y) => (bottom: 0.5pt + rgb(\"#d2d6db\")),\n"
+                "  fill: (x, y) => if y == 0 { dark } else if calc.even(y) { rowfill } else { white },\n"
+                "  " + ", ".join(cells) + "\n)]")
+        elif kind == "mermaid":
+            img = diagram_bytes[di] if di < len(diagram_bytes) else None
+            di += 1
+            if img is not None:
+                body.append(f'#align(center, image("d{di - 1}.png", width: 86%))')
+        elif kind == "code":
+            fence = "````" if "```" in payload else "```"
+            body.append(f"{fence}\n{payload}\n{fence}")
+        else:
+            body.append(_t_inline(payload))
+        i += 1
+
+    if sources:
+        body.append("= Sources")
+        for n, url in enumerate(sources, 1):
+            safe = _t_escape(url)
+            body.append(f'#text(size: 8.4pt)[[{n}] #link("{url}")[{safe}]] \\')
+
+    doc = (_T_PREAMBLE
+           .replace("__HEADER_TITLE__", _t_escape(title[:80]))
+           .replace("__TITLE__", _t_inline(title))
+           .replace("__DATE__", datetime.date.today().isoformat())
+           ) + "\n".join(body)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        for n, img in enumerate(diagram_bytes):
+            if img is not None:
+                with open(os.path.join(tmp, f"d{n}.png"), "wb") as f:
+                    f.write(img)
+        main = os.path.join(tmp, "report.typ")
+        with open(main, "w", encoding="utf-8") as f:
+            f.write(doc)
+        return bytes(typst.compile(main, font_paths=[str(_FONT_DIR)]))
+
 
 def to_pdf(title: str, markdown: str, diagrams: list | None = None) -> bytes:
+    try:
+        return _pdf_via_typst(title, markdown, diagrams)
+    except Exception as e:  # noqa: BLE001 — never fail an export on the new engine
+        print(f"[export] typst engine failed, falling back to fpdf2: {type(e).__name__}: {e}", flush=True)
+        return _pdf_via_fpdf(title, markdown, diagrams)
+
+
+# ---------------- PDF: fpdf2 engine (fallback) ----------------
+
+def _pdf_via_fpdf(title: str, markdown: str, diagrams: list | None = None) -> bytes:
     import os
     from fpdf import FPDF
     from fpdf.fonts import FontFace
@@ -381,7 +549,44 @@ def to_pptx(title: str, markdown: str, diagrams: list | None = None) -> bytes:
     p.font.size = Pt(15)
     p.font.color.rgb = C_GOLD
 
-    state = {"slide": None, "tf": None, "used": 0.0, "title": ""}
+    state = {"slide": None, "tf": None, "used": 0.0, "title": "", "section": 0}
+
+    def add_footer(s):
+        n = len(prs.slides)
+        tf = textbox(s, Inches(0.78), Inches(7.02), Inches(11.8), Inches(0.35))
+        p = tf.paragraphs[0]
+        p.text = "Agent Council"
+        p.font.name = BODY_FONT
+        p.font.size = Pt(9)
+        p.font.color.rgb = C_MUTED
+        tf2 = textbox(s, Inches(11.9), Inches(7.02), Inches(0.7), Inches(0.35))
+        p2 = tf2.paragraphs[0]
+        p2.text = str(n)
+        p2.font.name = BODY_FONT
+        p2.font.size = Pt(9)
+        p2.font.color.rgb = C_MUTED
+
+    def divider_slide(heading):
+        state["section"] += 1
+        s = prs.slides.add_slide(blank)
+        solid_bg(s, C_DARK)
+        tf = textbox(s, Inches(0.95), Inches(2.5), Inches(2.5), Inches(0.5))
+        p = tf.paragraphs[0]
+        p.text = f"{state['section']:02d}"
+        p.font.name = HEAD_FONT
+        p.font.size = Pt(22)
+        p.font.bold = True
+        p.font.color.rgb = C_GOLD
+        bar(s, Inches(1.0), Inches(3.15), Inches(1.1), Inches(0.06), C_GOLD)
+        tf2 = textbox(s, Inches(0.95), Inches(3.4), Inches(11.4), Inches(2.2))
+        p2 = tf2.paragraphs[0]
+        p2.text = heading[:140]
+        p2.font.name = HEAD_FONT
+        p2.font.size = Pt(34)
+        p2.font.bold = True
+        p2.font.color.rgb = C_WHITE
+        # content resumes on a fresh white slide under this section
+        state.update(slide=None, tf=None, used=0.0, title=heading, first=True)
 
     def new_slide(heading):
         s = prs.slides.add_slide(blank)
@@ -394,7 +599,8 @@ def to_pptx(title: str, markdown: str, diagrams: list | None = None) -> bytes:
         p.font.bold = True
         p.font.color.rgb = C_DARK
         bar(s, Inches(0.78), Inches(1.32), Inches(0.9), Inches(0.05), C_GOLD)
-        body = textbox(s, Inches(0.78), Inches(1.6), Inches(11.8), Inches(5.5))
+        add_footer(s)
+        body = textbox(s, Inches(0.78), Inches(1.6), Inches(11.8), Inches(5.3))
         state.update(slide=s, tf=body, used=0.0, title=heading, first=True)
 
     def ensure(units):
@@ -430,10 +636,19 @@ def to_pptx(title: str, markdown: str, diagrams: list | None = None) -> bytes:
             h = Inches(0.4 * len(chunk))
             shape = state["slide"].shapes.add_table(len(chunk), ncols, Inches(0.78), top, Inches(11.8), h)
             t = shape.table
+            # content-aware column widths (min share so tiny cols stay readable)
+            weights = [max(3, max(len(r[ci]) for r in chunk)) for ci in range(ncols)]
+            total = sum(weights)
+            for ci in range(ncols):
+                t.columns[ci].width = Emu(int(Inches(11.8) * max(weights[ci] / total, 0.55 / ncols)))
             for ci in range(ncols):
                 for ri, r in enumerate(chunk):
                     cell = t.cell(ri, ci)
                     cell.text = r[ci][:180]
+                    cell.margin_left = Inches(0.09)
+                    cell.margin_right = Inches(0.09)
+                    cell.margin_top = Inches(0.045)
+                    cell.margin_bottom = Inches(0.045)
                     para = cell.text_frame.paragraphs[0]
                     para.font.name = BODY_FONT
                     para.font.size = Pt(11.5)
@@ -467,7 +682,9 @@ def to_pptx(title: str, markdown: str, diagrams: list | None = None) -> bytes:
     for kind, payload in _parse_md(markdown):
         if kind == "blank":
             continue
-        if kind in ("h1", "h2"):
+        if kind == "h1":
+            divider_slide(payload)
+        elif kind == "h2":
             new_slide(payload)
         elif kind == "h3":
             add_para(payload, 0, bold=True, size=17)
