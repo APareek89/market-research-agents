@@ -4,11 +4,31 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Agent Council — Market Research</title>
+    <meta name="description" content="Agent Council: a 4-agent AI market-research team. Scout briefs the task, Astra drafts the analysis with live web research, Vera (first-principles reviewer with optional Expert Mode framework lenses) and Cleo (client reviewer) critique it, and Astra revises. Reports render tables and diagrams and export to styled PDF and PPTX. Bring your own Claude, GPT, or Hugging Face key." />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,wght@0,600;1,600&family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!-- Static fallback: what non-JS readers (AI assistants, crawlers) see.
+           React replaces this the moment the app mounts. -->
+      <div style="font-family: system-ui, sans-serif; background: #10151b; color: #cfd6dd; min-height: 100vh; padding: 48px; line-height: 1.55">
+        <h1 style="color: #fff; font-size: 22px">Agent Council — market research, sharpened by review</h1>
+        <p style="max-width: 62rem">A 4-agent AI market-research council. Scout turns your ask and uploaded
+        files into a research brief; Astra drafts the analysis with live web
+        search; Vera — a demanding first-principles reviewer, with an optional
+        Expert Mode that retrieves task-specific strategy-framework lenses
+        (Wardley, Porter, unit economics, premortem and 16 more) — and Cleo, a
+        commercially-minded client reviewer, interrogate the draft; Astra folds
+        every critique into the final analysis. Reports render tables and mermaid
+        diagrams and export to a styled PDF (Typst engine) or PPTX deck.
+        Runs persist server-side and survive page reloads. Bring your own Claude,
+        GPT, or Hugging Face API key — keys are request-scoped, never stored.</p>
+        <p>API overview: <a href="/llms.txt" style="color:#e8b04b">/llms.txt</a> ·
+        Source: <a href="https://github.com/APareek89/market-research-agents" style="color:#e8b04b">github.com/APareek89/market-research-agents</a></p>
+        <p style="color:#6e7a86">This is the static shell — the interactive app needs JavaScript.</p>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import db, runs
@@ -218,6 +218,49 @@ async def export_report(payload: dict):
     from fastapi.responses import Response
     return Response(content=data, media_type=media,
                     headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+# ---- bot access: let AI assistants (Claude chat etc.) read this site ----
+ROBOTS_TXT = """User-agent: *
+Allow: /
+
+User-agent: Claude-User
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+"""
+
+LLMS_TXT = """# Agent Council
+> A 4-agent AI market-research council: Scout (intake) -> Astra (analyst with web
+> search) -> Vera (first-principles reviewer, optional Expert Mode with dynamic
+> framework lenses) -> Cleo (client/customer reviewer). Reviewed output is
+> visibly sharper than a single-shot answer. Reports render tables and mermaid
+> diagrams and export to styled PDF (Typst engine) and PPTX.
+
+## App
+- Chat UI at / (React SPA; requires JavaScript)
+- GET /api/defaults: agents, prompts, models, framework count, PDF engine
+- POST /api/chat: multipart (message, session_id, config) -> SSE stream of the
+  council run; runs persist server-side and are re-attachable
+- GET /api/runs/{conversation_id}/stream: re-attach to a live run
+- POST /api/export: {format: pdf|pptx, title, markdown} -> styled report file
+
+Built with FastAPI + LangGraph + Claude models. Source: github.com/APareek89/market-research-agents
+"""
+
+
+@app.get("/robots.txt", response_class=PlainTextResponse)
+async def robots():
+    return ROBOTS_TXT
+
+
+@app.get("/llms.txt", response_class=PlainTextResponse)
+async def llms():
+    return LLMS_TXT
 
 
 # ---- static frontend (built React app) ----
