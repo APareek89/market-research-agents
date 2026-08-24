@@ -35,5 +35,7 @@ last-synced: 001b41e
 
 - 2026-08-22 — PDF engine = Typst (typst-py, pip wheel, zero system deps) NOT headless Chromium: sized Chromium at ~280MB + 150-300MB RAM per render vs Render free's 512MB — OOM risk; typst gives LaTeX-class output safely. to_pdf tries typst → ANY failure falls back to the old fpdf2 path silently; /api/defaults.pdf_engine reports which engine prod actually runs. Typst emitter in export.py: escape \\#$*_`@<>[]~ AND '/' ('//' is a typst comment — would eat URLs); consecutive bullets/numbered → list/enum blocks; [n]-sources → linked list. PPTX upgrades: h1 → dark section-divider slides (gold NN), footers w/ slide numbers, content-aware table column widths, cell margins, Sources slide.
 
+- 2026-08-22 — Bot access: app serves its own /robots.txt (Allow all incl. Claude bots — Render free tier otherwise INJECTS Disallow-all, see Learning.MD), /llms.txt app+API summary, and a visible static fallback in the SPA shell (React replaces on mount) so AI chats can read the URL.
+
 ## Session efficiency
 🎯 ~80% feature · 🔧 ~15% support (browser click coordinate-space + second dev-server port for concurrent session) · 🔁 ~5% rework
