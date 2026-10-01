@@ -18,6 +18,7 @@ from .lenses import prepare_lens_plans
 from .llm import build_llm
 from .prompts import EXPERT_AGENTS
 from .tools import ANALYST_TOOLS
+from .execution import current_execution
 
 MAX_TOOL_ITERS = 6
 MAX_TOOL_ITERS_REVISE = 3  # revise passes rarely need fresh research; cap the loop for latency
@@ -104,6 +105,8 @@ async def _run_with_tools(llm, system: str, user_content: str, max_iters: int = 
     """Manual tool-calling loop (avoids prebuilt-agent API drift across
     langgraph versions). Tools run in a thread so they don't block the loop."""
     msgs = [SystemMessage(content=system), HumanMessage(content=user_content)]
+    if current_execution().mode == "proof":
+        return _text_of(await llm.ainvoke(msgs))
     llm_t = llm.bind_tools(ANALYST_TOOLS)
     tools_by_name = {t.name: t for t in ANALYST_TOOLS}
     for _ in range(max_iters):
@@ -111,6 +114,8 @@ async def _run_with_tools(llm, system: str, user_content: str, max_iters: int = 
         msgs.append(resp)
         if not getattr(resp, "tool_calls", None):
             return _text_of(resp)
+        if len(resp.tool_calls)>6:
+            raise ValueError("Tool-call limit reached")
         for tc in resp.tool_calls:
             tool = tools_by_name.get(tc["name"])
             if tool is None:
@@ -119,7 +124,7 @@ async def _run_with_tools(llm, system: str, user_content: str, max_iters: int = 
                 try:
                     result = await asyncio.to_thread(tool.invoke, tc["args"])
                 except Exception as e:  # noqa: BLE001
-                    result = f"Tool error: {e}"
+                    result = "Tool request failed or was blocked by the network policy."
             msgs.append(ToolMessage(content=str(result) or "(empty)", tool_call_id=tc["id"]))
     msgs.append(HumanMessage(content="Finalize your full analysis now from what you have. Do not call any more tools."))
     resp = await llm.ainvoke(msgs)
@@ -140,7 +145,7 @@ def build_stages(cfg: dict) -> list[dict]:
         if c.get("enabled") and (c.get("system_prompt") or "").strip():
             customs[str(c.get("id"))] = c
 
-    order = [str(k) for k in (cfg.get("stage_order") or [])]
+    order = list(dict.fromkeys(str(k) for k in (cfg.get("stage_order") or [])))
     for default_key in ["reviewer"] + list(customs) + ["client"]:
         if default_key not in order:
             # unknown/new stages: customs slot in before client, client stays last

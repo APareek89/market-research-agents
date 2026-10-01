@@ -1,5 +1,11 @@
 # PRD — Market Research Agent Council
 
+## 2026-09-30 portfolio launch scope — supersedes v1 hosting/auth below
+
+Use a shared AWS EC2 Docker host with persistent PostgreSQL accounts and owner-scoped conversations, runs and traces. Password sessions are revocable; original uploads are private immutable S3 objects. The existing council/state/routing behavior remains intact. Three explicitly authored cached examples demonstrate the full loop for free; fresh questions use configured provider metadata and bounded live budgets. Shared Lovable Inter/Roboto Mono/Lucide UI supports both themes, mobile and sign-in/out. Browser preferences are per-account; API keys are memory-only. No fast-parallel council backlog or generated-media pipeline is added. Launch verification is tracked in Loop.MD; limited paid acceptance and ordinary-live verification passed on 1 October 2026; proof limits are recorded there.
+
+The older sections below describe v1 history where they conflict with this launch scope.
+
 ## What we're building
 A web app where a council of 4 AI agents produces sharp market-research analysis. Agent 0 (Scout) digests the user's ask + uploaded files; Agent 1 (Astra) researches with web tools and drafts the analysis; Agent 2 (Vera, "the boss") critiques it from first principles; Agent 3 (Cleo, "the client") gives final stakeholder feedback. Each review round feeds back into Agent 1 so the final output is much sharper than a single-shot answer.
 

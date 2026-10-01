@@ -2,11 +2,12 @@ import React from 'react'
 
 export default function SettingsTab({ settings, setSettings, defaults }) {
   const models = defaults.models || { claude: [], openai: [], hf: [] }
-  const provider = settings.provider || 'claude'
+  const provider = settings.provider || defaults.default_provider || 'claude'
+  const hostedDefault = provider === defaults.default_provider && defaults.server_key_available
 
   function setProvider(p) {
-    const model = p === 'claude' ? 'auto' : (models[p] || [])[0] || ''
-    setSettings({ ...settings, provider: p, model })
+    const model = p === defaults.default_provider ? defaults.default_model : p === 'claude' ? 'auto' : (models[p] || [])[0] || ''
+    setSettings({ ...settings, provider: p, model, api_key: '' })
   }
 
   const amd = defaults.agent_model_defaults || {}
@@ -16,9 +17,7 @@ export default function SettingsTab({ settings, setSettings, defaults }) {
     <div className="settings-layout">
       <h2>API & model</h2>
       <p className="hint">
-        By default the app runs on the host's Claude API key. Bring your own key to use OpenAI or
-        Hugging Face models, or to run on your own Claude quota. Keys live only in this browser and
-        are sent with each request — the server never stores them.
+        The configured provider is {defaults.default_provider || 'unavailable'}. Use it when available, or bring your own key. Keys stay only in this signed-in page’s memory and are sent with your research request; they are removed on signout or reload and never saved in browser storage.
       </p>
 
       <div className="field">
@@ -33,7 +32,7 @@ export default function SettingsTab({ settings, setSettings, defaults }) {
       {provider !== 'hf' && (
         <div className="field">
           <label>Model</label>
-          <select value={settings.model} onChange={(e) => setSettings({ ...settings, model: e.target.value })}>
+          <select aria-label="Model" value={settings.model} onChange={(e) => setSettings({ ...settings, model: e.target.value })}>
             {provider === 'claude' && <option value="auto">{autoLabel}</option>}
             {(models[provider] || []).map((m) => (
               <option key={m} value={m}>{m} (all agents)</option>
@@ -47,6 +46,7 @@ export default function SettingsTab({ settings, setSettings, defaults }) {
           <div className="field">
             <label>Model — popular picks</label>
             <select
+              aria-label="Hugging Face model preset"
               value={(models.hf || []).includes(settings.model) ? settings.model : ''}
               onChange={(e) => e.target.value && setSettings({ ...settings, model: e.target.value })}
             >
@@ -57,6 +57,7 @@ export default function SettingsTab({ settings, setSettings, defaults }) {
           <div className="field">
             <label>…or any Hugging Face model id <em>(served via HF Inference Providers router)</em></label>
             <input
+              aria-label="Hugging Face model ID"
               type="text"
               placeholder="e.g. meta-llama/Llama-3.3-70B-Instruct"
               value={settings.model}
@@ -71,13 +72,12 @@ export default function SettingsTab({ settings, setSettings, defaults }) {
       <div className="field">
         <label>
           {provider === 'hf' ? 'HF token ' : 'API key '}
-          {provider === 'claude'
-            ? <em>(optional — blank uses the host's default key{defaults.server_key_available ? '' : ' — NOT configured on this server!'})</em>
-            : <em>(required — {provider === 'hf' ? 'get one at hf.co/settings/tokens' : 'required for OpenAI'})</em>}
+          {hostedDefault ? <em>(optional — blank uses the configured provider)</em> : <em>(required for this provider)</em>}
         </label>
         <input
           type="password"
-          placeholder={provider === 'claude' ? 'sk-ant-… (optional)' : provider === 'hf' ? 'hf_…' : 'sk-…'}
+          aria-label="Provider API key"
+          placeholder={provider === 'claude' ? 'sk-ant-…' : provider === 'hf' ? 'hf_…' : 'sk-…'}
           value={settings.api_key}
           onChange={(e) => setSettings({ ...settings, api_key: e.target.value })}
           autoComplete="off"

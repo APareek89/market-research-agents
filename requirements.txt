@@ -6,7 +6,7 @@ langchain-core>=0.3
 langchain-anthropic>=0.3
 langchain-openai>=0.3
 langgraph>=0.3
-pypdf>=5
+pypdf==6.19.0
 python-docx>=1.1
 openpyxl>=3.1
 ddgs>=9
@@ -16,3 +16,6 @@ asyncpg>=0.29
 fpdf2>=2.7
 python-pptx>=1.0
 typst>=0.13
+
+bcrypt==4.3.0
+boto3==1.42.97

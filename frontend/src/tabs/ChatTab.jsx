@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { streamChat, getConversations, getMessages, exportReport, getActiveRuns, attachRun, stopRun } from '../api.js'
+import { streamChat, getConversations, getMessages, exportReport, getActiveRuns, attachRun, stopRun, getExamples, startExample } from '../api.js'
+import { Play, Plus, Paperclip, Download, RotateCcw, Square, Send, X } from 'lucide-react'
+import { storageKey, captureSession, assertCurrentSession } from '../session.js'
 import { MdContent, renderMermaidPngs } from '../md.jsx'
 
 const ACCEPT = '.pdf,.docx,.xlsx,.xlsm,.csv,.txt,.md,.json,.png,.jpg,.jpeg,.gif,.webp'
@@ -8,8 +10,13 @@ const MAX_BYTES = 15 * 1024 * 1024
 /* Multi-thread chat: every conversation has its own message list and (optional)
  * live run. Switching threads or starting a new chat NEVER interrupts a run —
  * streams keep writing to their own conversation's state via stable keys. */
-export default function ChatTab({ config, agents, customAgents, toggles, setToggles, onRunUpdate }) {
-  const [activeConv, setActiveConv] = useState(localStorage.getItem('mra_conversation') || 'new')
+export default function ChatTab({ owner, config, agents, customAgents, toggles, setToggles, onRunUpdate, onHistoryRestore }) {
+  const conversationKey = storageKey(owner, 'conversation')
+  const [activeConv, setActiveConv] = useState(localStorage.getItem(conversationKey) || 'new')
+  const [examples, setExamples] = useState([])
+  const [showExamples, setShowExamples] = useState(true)
+  const [exampleBusy, setExampleBusy] = useState('')
+  const mounted = useRef(true)
   const [chats, setChats] = useState({})   // convKey -> [{role, content, trace}]
   const [runs, setRuns] = useState({})     // convKey -> {plan, done, status, fileCount, error}
   const [convos, setConvos] = useState([])
@@ -32,7 +39,7 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
   useEffect(() => {
     if (activeConv === 'new' || activeConv.startsWith('tmp-') || chats[activeConv]) return
     getMessages(activeConv)
-      .then((msgs) => setChats((c) => ({ ...c, [activeConv]: msgs.map((m) => ({ role: m.role, content: m.content, trace: m.trace })) })))
+      .then((msgs) => restoreMessages(activeConv, msgs))
       .catch(() => {})
   }, [activeConv])
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages.length, activeRun?.done])
@@ -46,19 +53,43 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
       .catch(() => {})
   }, [])
 
+  useEffect(() => {
+    getExamples().then(setExamples).catch(e => setError(e.message))
+    return () => { mounted.current = false; Object.values(controllers.current).forEach(c => c.abort()); lastPayload.current = {} }
+  }, [])
+
+  async function tryExample(id) {
+    if (exampleBusy) return
+    setExampleBusy(id); setError('')
+    try {
+      const result = await startExample(id)
+      if (!mounted.current) return
+      setShowExamples(false); pickConversation(result.conversation_id); reattach(result.conversation_id)
+      getConversations().then(setConvos).catch(() => {})
+    } catch (e) { if (mounted.current) setError(e.message) }
+    finally { if (mounted.current) setExampleBusy('') }
+  }
+
   function refetchMessages(cid) {
     getMessages(cid)
-      .then((msgs) => setChats((c) => ({ ...c, [cid]: msgs.map((m) => ({ role: m.role, content: m.content, trace: m.trace })) })))
+      .then((msgs) => restoreMessages(cid, msgs))
       .catch(() => {})
     getConversations().then(setConvos).catch(() => {})
   }
 
+  function restoreMessages(cid, msgs) {
+    if (!mounted.current) return
+    setChats(c => ({ ...c, [cid]: msgs }))
+    onHistoryRestore(cid, msgs)
+  }
+
   function reattach(cid) {
+    if (!mounted.current) return
     if (controllers.current[cid]) return // this tab is already streaming it
     const controller = new AbortController()
     controllers.current[cid] = controller
     setRuns((r) => ({ ...r, [cid]: { status: 'running', plan: null, done: 0 } }))
-    const run = { id: crypto.randomUUID(), at: new Date().toLocaleTimeString(), input: '(rejoined after reload)', steps: [], status: 'running' }
+    const run = { id: crypto.randomUUID(), conversationId: cid, at: new Date().toLocaleTimeString(), input: '(rejoined after reload)', steps: [], status: 'running' }
     onRunUpdate({ ...run })
     attachRun(cid, (ev) => {
       if (ev.type === 'plan') {
@@ -91,7 +122,7 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
   function pickConversation(key) {
     setActiveConv(key)
     setError('')
-    localStorage.setItem('mra_conversation', key === 'new' ? '' : key)
+    localStorage.setItem(conversationKey, key === 'new' ? '' : key)
   }
 
   function newChat() {
@@ -160,7 +191,7 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
 
     let key = convKey // may migrate tmp -> real id when the plan event arrives
     const runId = crypto.randomUUID()
-    const run = { id: runId, at: new Date().toLocaleTimeString(), input: userText, steps: [], status: 'running' }
+    const run = { id: runId, conversationId: convKey, at: new Date().toLocaleTimeString(), input: userText, steps: [], status: 'running' }
     onRunUpdate({ ...run })
     let gotFinal = false
     try {
@@ -175,6 +206,7 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
           if ((ev.type === 'conversation' || ev.type === 'plan') && realId && realId !== key) {
             const oldKey = key
             key = realId
+            run.conversationId = realId
             controllers.current[realId] = controllers.current[oldKey]
             delete controllers.current[oldKey]
             if (lastPayload.current[oldKey]) {
@@ -185,8 +217,8 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
             setRuns((r) => renameKey(r, oldKey, realId))
             setConvos((c) => c.map((x) => (x.id === oldKey ? { ...x, id: realId } : x)))
             setActiveConv((cur) => (cur === oldKey ? realId : cur))
-            if ((localStorage.getItem('mra_conversation') || '') === '' || localStorage.getItem('mra_conversation') === oldKey) {
-              localStorage.setItem('mra_conversation', realId)
+            if ((localStorage.getItem(conversationKey) || '') === '' || localStorage.getItem(conversationKey) === oldKey) {
+              localStorage.setItem(conversationKey, realId)
             }
             if (stopFlags.current[oldKey]) {
               delete stopFlags.current[oldKey]
@@ -240,10 +272,12 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
   }
 
   async function doExport(fmt, content) {
+    const generation = captureSession()
     setExporting(fmt)
     try {
       const title = (messages.find((m) => m.role === 'user')?.content || 'Market research report').split('\n')[0].slice(0, 120)
       const diagrams = await renderMermaidPngs(content)
+      assertCurrentSession(generation)
       await exportReport(fmt, title, content, diagrams)
     } catch {
       setError('Export failed — try again.')
@@ -265,7 +299,8 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
   return (
     <div className="chat-shell">
       <aside className="convo-sidebar">
-        <button className="new-chat" onClick={newChat}>＋ New chat</button>
+        <button className="new-chat" onClick={newChat}><Plus size={16} /> New chat</button>
+        <button className="ghost example-launch" onClick={() => setShowExamples(v => !v)}><Play size={16} /> Try with an example</button>
         <div className="convo-list">
           {convos.map((c) => (
             <button
@@ -311,6 +346,7 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
         </div>
 
         <div className="messages">
+          {showExamples && examples.length > 0 && <section className="example-section" aria-label="Free prepared examples"><div className="example-heading"><div><span className="eyebrow">Start with a prepared example</span><h2>See how the council reviews a decision.</h2></div><span className="example-badge">Free · cached</span></div><p className="hint">Prepared transcripts demonstrate every stage. They are illustrative, not current market research. New messages use your selected provider and may incur cost.</p><div className="example-grid">{examples.map(example => <button key={example.id} className="example-card" disabled={!!exampleBusy} aria-busy={exampleBusy === example.id} onClick={() => tryExample(example.id)}><Play size={18} /><strong>{example.title}</strong><span>{example.description}</span><small>{exampleBusy === example.id ? 'Preparing example…' : 'Open prepared council'}</small></button>)}</div></section>}
           {messages.length === 0 && !running && (
             <div className="empty">
               <h2>Ask the council anything market-research.</h2>
@@ -329,10 +365,10 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
                       <div className="export-bar">
                         <span>Want this report as a file?</span>
                         <button disabled={!!exporting} onClick={() => doExport('pdf', m.content)}>
-                          {exporting === 'pdf' ? 'Building…' : '⬇ PDF'}
+                          <Download size={14} />{exporting === 'pdf' ? 'Building…' : 'PDF'}
                         </button>
                         <button disabled={!!exporting} onClick={() => doExport('pptx', m.content)}>
-                          {exporting === 'pptx' ? 'Building…' : '⬇ PPT'}
+                          <Download size={14} />{exporting === 'pptx' ? 'Building…' : 'PPT'}
                         </button>
                       </div>
                     )}
@@ -360,7 +396,7 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
             <div className="error-box">
               ⚠ {error || activeRun?.error}
               {activeRun?.error && lastPayload.current[activeConv] && !running && (
-                <button className="retry-btn" title="Retry this prompt" onClick={retry}>↻ Retry</button>
+                <button className="retry-btn" title="Retry this prompt" onClick={retry}><RotateCcw size={14} /> Retry</button>
               )}
             </div>
           )}
@@ -368,21 +404,23 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
         </div>
 
         <div className="composer">
+          <p className="composer-note">Prepared examples are free. New questions use your selected provider.</p>
           {files.length > 0 && (
             <div className="chips">
               {files.map((f, i) => (
                 <span key={i} className="chip">
                   {f.name}
-                  <button onClick={() => setFiles(files.filter((_, j) => j !== i))}>×</button>
+                  <button aria-label={`Remove ${f.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))}><X size={12} /></button>
                 </span>
               ))}
             </div>
           )}
           <div className="composer-row">
-            <button className="attach" title="Attach files" onClick={() => fileRef.current?.click()}>📎</button>
+            <button className="attach" title="Attach files" aria-label="Attach files" onClick={() => fileRef.current?.click()}><Paperclip size={18} /></button>
             <input ref={fileRef} type="file" multiple accept={ACCEPT} hidden
               onChange={(e) => { addFiles(e.target.files); e.target.value = '' }} />
             <textarea
+              aria-label="Research question"
               value={input}
               placeholder={running ? 'This thread is running — open another thread or start a new chat…' : 'e.g. Size the market for AI video watermark removal in SEA — here\'s our pricing sheet…'}
               onChange={(e) => setInput(e.target.value)}
@@ -391,8 +429,8 @@ export default function ChatTab({ config, agents, customAgents, toggles, setTogg
               disabled={running}
             />
             {running
-              ? <button className="send stop" onClick={stop}>■ Stop</button>
-              : <button className="send" disabled={!input.trim() && !files.length} onClick={send}>Send</button>}
+              ? <button className="send stop" onClick={stop}><Square size={15} /> Stop</button>
+              : <button className="send" disabled={!input.trim() && !files.length} onClick={send}><Send size={15} /> Send</button>}
           </div>
         </div>
       </div>

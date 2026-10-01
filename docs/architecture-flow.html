@@ -13,29 +13,36 @@
 <h1>Architecture Flow</h1>
 <h2>granularity: master</h2>
 <pre class="mermaid">%% granularity: master
-%% files: app/graph.py, app/main.py, app/runs.py, app/lenses.py, app/kb.py, app/extract.py, app/tools.py, app/db.py, app/export.py
+%% files: app/main.py, app/auth.py, app/db.py, app/runs.py, app/execution.py, app/examples.py, app/graph.py, app/lenses.py, app/tools.py, app/upload_storage.py, app/usage.py
 flowchart TD
-    U[User message + files + toggles + custom agents&lt;br/&gt;POST /api/chat multipart · Stop = POST /api/runs/id/stop] --&gt; RUN[FUNCTION detached run task · runs.py&lt;br/&gt;asyncio task outlives the request&lt;br/&gt;every event → registry + mra_runs JSONB]
-    RUN --&gt; EX[FUNCTION extract_file&lt;br/&gt;in: PDF/DOCX/XLSX/CSV/img ≤15MB&lt;br/&gt;out: text caps 40k chars / base64 image]
-    RUN -. attach / re-attach by conversation id .-&gt; VW[SSE viewers · tail with replay cursor&lt;br/&gt;POST /api/chat = first viewer&lt;br/&gt;GET /api/runs/id/stream after reload&lt;br/&gt;15s heartbeat · disconnect ≠ stop]
-    EX --&gt; MEM[(Postgres mra_ tables&lt;br/&gt;fallback: in-memory)]
-    MEM --&gt;|history last 12 msgs| A0
-    EX --&gt; A0[AGENT Scout · intake_node&lt;br/&gt;model: per-agent or auto=haiku&lt;br/&gt;out: research brief]
-    A0 --&gt; A1[AGENT Astra · analyst_node&lt;br/&gt;tools: web_search, web_fetch max 6 iters&lt;br/&gt;auto=sonnet · out: draft analysis]
-    A0 --&gt; LP[AGENT lens_prep · lenses.py — PARALLEL with draft&lt;br/&gt;only when a core reviewer has Expert Mode ON&lt;br/&gt;haiku router picks ≤3 Vera / ≤2 Cleo lenses from mra_frameworks index&lt;br/&gt;sonnet composes blind interrogation plan ≤9q Vera / ≤5q Cleo, lens-tagged&lt;br/&gt;ANY failure → no plan, run degrades to today silently]
-    KB[(mra_frameworks · 20 rows&lt;br/&gt;mirror of kb/frameworks/*.md&lt;br/&gt;ingest: scripts/ingest_kb.py&lt;br/&gt;embedding vector 1024 unused until &gt;50)] --&gt;|index + whole rows| LP
-    A1 --&gt; ST{{Dynamic review stages&lt;br/&gt;build_stages: user-ordered mix of&lt;br/&gt;Vera reviewer · Cleo client · ≤3 custom agents&lt;br/&gt;Expert Mode: server swaps in EXPERT_AGENTS prompt,&lt;br/&gt;client-sent prompt IGNORED · custom agents never expert}}
-    LP --&gt;|lens_plan joins at first stage| ST
-    ST --&gt; SG[AGENT stage · make_stage_node&lt;br/&gt;expert stages get interrogation plan appended:&lt;br/&gt;two-phase answered/dodged/never-considered + lens tags&lt;br/&gt;reviewer mode: feedback → Astra revise pass&lt;br/&gt;transformer mode: output REPLACES analysis]
-    SG --&gt;|next stage| ST
-    ST --&gt;|stages done| FIN[final = current analysis&lt;br/&gt;SSE node_complete + final events&lt;br/&gt;lens_prep appears as Router node in plan/trace]
-    FIN --&gt; MEM2[(save assistant msg + full trace JSONB&lt;br/&gt;stop → partial ⏹ msg persisted server-side)]
-    FIN --&gt; UI[Chat renders final + export bar&lt;br/&gt;Observability renders trace + models + lens output]
-    UI --&gt; XP[FUNCTION /api/export&lt;br/&gt;fpdf2 PDF · python-pptx PPT&lt;br/&gt;from final markdown]
+    UI[&quot;Account UI · Inter / Roboto Mono / Lucide&lt;br/&gt;Owner-scoped preferences · BYOK in page memory&quot;] --&gt; AUTH[&quot;Boundary: revocable cookie + signed CSRF&lt;br/&gt;Owner from server session; legacy session_id ignored&quot;]
+    AUTH --&gt; PG[(&quot;PostgreSQL&lt;br/&gt;users / sessions / conversations / messages / runs / usage&quot;)]
+    AUTH --&gt; MODE{&quot;Server-owned execution context&quot;}
+    MODE --&gt;|&quot;Prepared example&quot;| FIX[&quot;Immutable authored replies&lt;br/&gt;Explicit cached trace · no model or network tool&quot;]
+    MODE --&gt;|&quot;New research&quot;| PAID[&quot;Provider budget reservation&lt;br/&gt;Configured OpenAI / explicit BYOK&lt;br/&gt;No automatic provider retries&quot;]
+    AUTH --&gt; EX[&quot;Upload extraction · bounded bytes and formats&quot;]
+    EX --&gt; S3[(&quot;Private versioned S3 originals&lt;br/&gt;Owner + exact version + SHA-256&quot;)]
+    FIX --&gt; RUN[&quot;Detached council task · one worker&lt;br/&gt;Registry + durable event replay&quot;]
+    PAID --&gt; RUN
+    EX --&gt; RUN
+    PG --&gt;|&quot;Owned history: last12messages&quot;| RUN
+    RUN -. &quot;SSE viewer can detach/rejoin;15s heartbeat&quot; .-&gt; UI
+    RUN --&gt; A0[&quot;AGENT Scout · intake brief&quot;]
+    A0 --&gt; A1[&quot;AGENT Astra · analysis&lt;br/&gt;Live-only public web search/fetch&quot;]
+    A0 --&gt; LP[&quot;AGENT lens prep · parallel with draft&lt;br/&gt;Core expert reviewers only&lt;br/&gt;Router + composer; failure degrades to ordinary review&quot;]
+    KB[(&quot;Bundled strategy frameworks&lt;br/&gt;Imported into app database&quot;) ] --&gt; LP
+    A1 --&gt; ST{&quot;Dynamic ordered review stages&lt;br/&gt;Vera / Cleo / up to3 custom agents&quot;}
+    LP --&gt; ST
+    ST --&gt; RV[&quot;Reviewer: feedback then Astra revision&lt;br/&gt;Transformer: replaces current analysis&lt;br/&gt;Expert prompt enforced server-side&quot;]
+    RV --&gt;|&quot;Next stage&quot;| ST
+    ST --&gt;|&quot;Complete&quot;| FIN[&quot;Final report + complete trace&lt;br/&gt;Explicit Stop persists partial output&quot;]
+    FIN --&gt; PG
+    FIN --&gt; UI
+    UI --&gt; XP[&quot;Authenticated report export&lt;br/&gt;Typst PDF with fpdf fallback / PPTX&lt;br/&gt;Mermaid rasterization uses XMLSerializer&quot;]
 </pre>
 <script type="module">
 import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
-mermaid.initialize({ startOnLoad:false, securityLevel:"loose", theme:"base",
+mermaid.initialize({ startOnLoad:false, securityLevel:"strict", theme:"base",
   themeVariables:{ fontFamily:"-apple-system, Segoe UI, Roboto, sans-serif", fontSize:"14px" } });
 await mermaid.run({ querySelector:"pre.mermaid" });
 </script>

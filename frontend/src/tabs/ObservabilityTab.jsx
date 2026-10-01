@@ -7,8 +7,8 @@ export default function ObservabilityTab({ runs }) {
   if (!runs.length) {
     return (
       <div className="empty tall">
-        <h2>No runs yet this session.</h2>
-        <p>Send a message in the Chat tab — every agent hop (input → intake → analysis → critique → refinement → client feedback → final) will show up here with outputs and timings.</p>
+        <h2>No trace selected yet.</h2>
+        <p>Open a saved conversation or run a prepared example in Chat. Each recorded agent step appears here with its output and timing.</p>
       </div>
     )
   }
@@ -19,6 +19,7 @@ export default function ObservabilityTab({ runs }) {
         <div key={run.id} className="run-card">
           <div className="run-head">
             <span className={`status ${run.status}`}>{run.status}</span>
+            {run.cached && <span className="example-badge">Prepared · no provider</span>}
             <span className="run-input">{run.input?.slice(0, 120)}</span>
             <span className="run-meta">{run.at}{run.total ? ` · ${run.total}s total` : ''}</span>
           </div>
@@ -29,7 +30,7 @@ export default function ObservabilityTab({ runs }) {
               const open = openStep === key
               return (
                 <div key={key} className="flow-step">
-                  <button className="flow-node" onClick={() => setOpenStep(open ? null : key)}>
+                  <button className="flow-node" aria-expanded={open} onClick={() => setOpenStep(open ? null : key)}>
                     <span className="flow-agent">{s.agent}</span>
                     <span className="flow-label">{s.label}</span>
                     <span className="flow-time">{s.elapsed}s{s.model ? ` · ${s.model.replace('claude-', '')}` : ''}</span>

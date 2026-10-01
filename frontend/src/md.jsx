@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 
@@ -9,19 +9,19 @@ export function renderMd(text) {
 }
 
 let mermaidP = null
-function loadMermaid(theme) {
-  if (!mermaidP) {
-    mermaidP = import('mermaid').then(({ default: mermaid }) => {
-      mermaid.initialize({
-        startOnLoad: false,
-        theme,
-        securityLevel: 'strict',
-        flowchart: { htmlLabels: false }, // plain-SVG labels keep canvas rasterization untainted
-      })
-      return mermaid
-    })
-  }
+function loadMermaid() {
+  if (!mermaidP) mermaidP = import('mermaid').then(({ default: mermaid }) => mermaid)
   return mermaidP
+}
+let diagramQueue = Promise.resolve()
+function renderDiagram(id, source, theme) {
+  const result = diagramQueue.then(async () => {
+    const mermaid = await loadMermaid()
+    mermaid.initialize({ startOnLoad: false, theme, securityLevel: 'strict', flowchart: { htmlLabels: false } })
+    return mermaid.render(id, source)
+  })
+  diagramQueue = result.catch(() => {})
+  return result
 }
 
 let mid = 0
@@ -29,14 +29,21 @@ let mid = 0
 /** Markdown block that also renders ```mermaid fences as live diagrams. */
 export function MdContent({ text }) {
   const ref = useRef(null)
+  const [theme, setTheme] = useState(() => document.documentElement.dataset.theme === 'dark' ? 'dark' : 'neutral')
   useEffect(() => {
+    const change = () => setTheme(document.documentElement.dataset.theme === 'dark' ? 'dark' : 'neutral')
+    window.addEventListener('mra-theme-change', change)
+    return () => window.removeEventListener('mra-theme-change', change)
+  }, [])
+  useEffect(() => {
+    if (ref.current) ref.current.innerHTML = renderMd(text).__html
     const codes = ref.current?.querySelectorAll('code.language-mermaid')
     if (!codes?.length) return
     let cancelled = false
-    loadMermaid('dark').then(async (mermaid) => {
+    ;(async () => {
       for (const code of [...codes]) {
         try {
-          const { svg } = await mermaid.render(`mmd${++mid}`, code.textContent)
+          const { svg } = await renderDiagram(`mmd${++mid}`, code.textContent, theme)
           if (cancelled) return
           const holder = document.createElement('div')
           holder.className = 'mermaid-holder'
@@ -46,9 +53,9 @@ export function MdContent({ text }) {
           /* leave the fence as code if the diagram doesn't parse */
         }
       }
-    })
+    })()
     return () => { cancelled = true }
-  }, [text])
+  }, [text, theme])
   return <div ref={ref} className="md" dangerouslySetInnerHTML={renderMd(text)} />
 }
 
@@ -92,17 +99,13 @@ function svgToPng(svg) {
 export async function renderMermaidPngs(markdown) {
   const blocks = [...(markdown || '').matchAll(/```mermaid\s*\n([\s\S]*?)```/g)].map((m) => m[1])
   if (!blocks.length) return []
-  const mermaid = await loadMermaid('dark')
   const pngs = []
   for (const block of blocks) {
     try {
-      mermaid.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'strict', flowchart: { htmlLabels: false } })
-      const { svg } = await mermaid.render(`exp${++mid}`, block)
+      const { svg } = await renderDiagram(`exp${++mid}`, block, 'neutral')
       pngs.push(await svgToPng(svg))
     } catch {
       pngs.push(null)
-    } finally {
-      mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict', flowchart: { htmlLabels: false } })
     }
   }
   return pngs

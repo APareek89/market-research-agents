@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react'
 import { synthesizePrompt } from '../api.js'
+import { ChevronLeft, ChevronRight, Paperclip, Plus, Settings2, X } from 'lucide-react'
 
 function ConfigureModal({ agentName, agentRole, currentPrompt, settings, onUse, onClose }) {
   const [notes, setNotes] = useState('')
@@ -24,24 +25,25 @@ function ConfigureModal({ agentName, agentRole, currentPrompt, settings, onUse, 
 
   return (
     <div className="modal-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="modal">
+      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="configure-title">
         <div className="modal-head">
-          <h3>⚙ Configure “{agentName}” with AI</h3>
-          <button className="ghost" onClick={onClose}>✕ Close</button>
+          <h3 id="configure-title">Configure “{agentName}” with AI</h3>
+          <button className="ghost" onClick={onClose}><X size={16} /> Close</button>
         </div>
         <p className="hint">Describe the real person this agent should emulate — your boss, your client, a domain expert — and/or upload things they've written (review comments, emails, feedback docs). One agent will synthesize it all into a new system prompt for {agentName}.</p>
         <textarea
           className="modal-notes"
+          aria-label="Instructions for this agent"
           placeholder={'e.g. "My boss Rahul is a former McKinsey EM. He always asks for the so-what first, hates unsourced numbers, pushes on India-specific distribution reality, and ends every review with exactly 3 must-fix items…"'}
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
         />
         <div className="modal-row">
-          <button className="ghost" onClick={() => fileRef.current?.click()}>📎 Upload docs ({files.length})</button>
+          <button className="ghost" onClick={() => fileRef.current?.click()}><Paperclip size={16} /> Upload docs ({files.length})</button>
           <input ref={fileRef} type="file" multiple hidden accept=".pdf,.docx,.xlsx,.csv,.txt,.md,.png,.jpg,.jpeg"
             onChange={(e) => { setFiles([...files, ...e.target.files]); e.target.value = '' }} />
           {files.map((f, i) => (
-            <span key={i} className="chip">{f.name}<button onClick={() => setFiles(files.filter((_, j) => j !== i))}>×</button></span>
+            <span key={i} className="chip">{f.name}<button aria-label={`Remove ${f.name}`} onClick={() => setFiles(files.filter((_, j) => j !== i))}><X size={12} /></button></span>
           ))}
           <span style={{ flex: 1 }} />
           <button className="save" disabled={busy || (!notes.trim() && !files.length)} onClick={generate}>
@@ -52,7 +54,7 @@ function ConfigureModal({ agentName, agentRole, currentPrompt, settings, onUse, 
         {result && (
           <>
             <label className="editor-label">Generated system prompt — review, then apply</label>
-            <textarea className="modal-result" value={result} onChange={(e) => setResult(e.target.value)} spellCheck={false} />
+            <textarea className="modal-result" aria-label="Generated system prompt" value={result} onChange={(e) => setResult(e.target.value)} spellCheck={false} />
             <div className="modal-row">
               <span style={{ flex: 1 }} />
               <button className="save" onClick={() => onUse(result)}>Use this prompt</button>
@@ -120,9 +122,9 @@ function StagePipeline({ agents, customAgents, stageOrder, setStageOrder, toggle
           <React.Fragment key={key}>
             <span className="pipe-arrow">→</span>
             <span className={enabledOf(key) ? 'pipe-node stage' : 'pipe-node stage off'}>
-              <button className="pipe-move" title="Move earlier" onClick={() => move(i, -1)}>◀</button>
+              <button className="pipe-move" aria-label={`Move ${nameOf(key)} earlier`} title="Move earlier" onClick={() => move(i, -1)}><ChevronLeft size={14} /></button>
               {nameOf(key)}
-              <button className="pipe-move" title="Move later" onClick={() => move(i, 1)}>▶</button>
+              <button className="pipe-move" aria-label={`Move ${nameOf(key)} later`} title="Move later" onClick={() => move(i, 1)}><ChevronRight size={14} /></button>
             </span>
           </React.Fragment>
         ))}
@@ -201,6 +203,8 @@ export default function PromptsTab({ agents, defaults, expertAgents, setAgents, 
   }
 
   const claudeModels = models.claude || []
+  const perAgentModel = settings.provider === 'claude'
+  const effectiveModel = settings.model || 'Configured model'
 
   return (
     <div className="prompts-outer">
@@ -230,7 +234,7 @@ export default function PromptsTab({ agents, defaults, expertAgents, setAgents, 
             )
           })}
           {customAgents.length < maxCustom && (
-            <button className="add-agent" onClick={addCustom}>＋ Add your own agent ({customAgents.length}/{maxCustom})</button>
+            <button className="add-agent" onClick={addCustom}><Plus size={16} /> Add your own agent ({customAgents.length}/{maxCustom})</button>
           )}
           <p className="hint">Edits apply after you hit Save, live only in this browser, and shape your very next message. Custom agents appear as toggles in Chat once saved.</p>
         </aside>
@@ -242,10 +246,10 @@ export default function PromptsTab({ agents, defaults, expertAgents, setAgents, 
             </label>
             <label>
               Model
-              <select value={draft.model || 'auto'} onChange={(e) => update('model', e.target.value)}>
-                <option value="auto">Auto (recommended)</option>
-                {claudeModels.map((m) => <option key={m} value={m}>{m}</option>)}
+              <select disabled={!perAgentModel} value={perAgentModel ? draft.model || 'auto' : effectiveModel} onChange={(e) => update('model', e.target.value)}>
+                {perAgentModel ? <><option value="auto">Auto (recommended)</option>{claudeModels.map((m) => <option key={m} value={m}>{m}</option>)}</> : <option value={effectiveModel}>{effectiveModel}</option>}
               </select>
+              {!perAgentModel && <small className="hint">Uses the model selected in API &amp; Model</small>}
             </label>
             {isCustom && (
               <label>
@@ -263,7 +267,7 @@ export default function PromptsTab({ agents, defaults, expertAgents, setAgents, 
                 ★ Expert Mode
               </label>
             )}
-            <button className="ghost configure" disabled={expertOn} onClick={() => setConfiguring(true)}>⚙ Configure with AI</button>
+            <button className="ghost configure" disabled={expertOn} onClick={() => setConfiguring(true)}><Settings2 size={16} /> Configure with AI</button>
             <button className="save" disabled={!dirty} onClick={save}>
               {dirty ? 'Save changes' : 'Saved'}
             </button>

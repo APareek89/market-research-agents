@@ -10,9 +10,11 @@ import time
 import uuid
 
 from . import db
+from .execution import Execution, execution_scope
+import os
 from .extract import ExtractError, extract_file
 from .graph import build_council_graph, build_stages, node_sequence
-from .lenses import ROUTER_MODEL
+from .lenses import model_label
 from .llm import ConfigError, resolve_model
 from .prompts import DEFAULT_AGENTS
 
@@ -21,10 +23,12 @@ _MAX_KEPT = 60
 
 
 class Run:
-    def __init__(self, conversation_id: str, session_id: str):
+    def __init__(self, conversation_id: str, owner_id: str, mode="live", example_id=None):
         self.id = str(uuid.uuid4())
         self.conversation_id = conversation_id
-        self.session_id = session_id
+        self.owner_id = owner_id
+        self.mode = mode
+        self.example_id = example_id
         self.status = "running"  # running | done | error | stopped
         self.events: list[dict] = []
         self.task: asyncio.Task | None = None
@@ -52,44 +56,49 @@ class Run:
                 self._waiters.remove(f)
 
     async def emit(self, ev: dict):
+        # Commit before publishing: a successful event is durable.
+        await db.save_run(self, events=self.events+[ev])
         self.events.append(ev)
         self._notify()
-        await db.save_run(self)
 
     async def finish(self, status: str, ev: dict):
         """Terminal status is set BEFORE the closing event so tails drain and exit."""
+        await db.save_run(self, events=self.events+[ev], status=status)
         self.status = status
-        await self.emit(ev)
+        self.events.append(ev)
+        self._notify()
 
 
-def register(conversation_id: str, session_id: str) -> Run:
-    if len(RUNS) > _MAX_KEPT:
-        stale = [c for c, r in RUNS.items() if r.status != "running"]
-        for cid in stale[: len(RUNS) - _MAX_KEPT]:
-            RUNS.pop(cid, None)
-    run = Run(conversation_id, session_id)
-    RUNS[conversation_id] = run
+def register(conversation_id: str, owner_id: str, mode="live", example_id=None) -> Run:
+    active=[r for r in RUNS.values() if r.status=="running"]
+    if len(active)>=4 or any(r.owner_id==owner_id for r in active):
+        raise ConfigError("A research run is already active; wait or stop it first")
+    stale=[cid for cid,r in RUNS.items() if r.status!="running"]
+    for cid in stale[:max(0,len(RUNS)-_MAX_KEPT+1)]:
+        RUNS.pop(cid,None)
+    run=Run(conversation_id,owner_id,mode,example_id)
+    RUNS[conversation_id]=run
     return run
 
+def get(conversation_id: str, owner_id: str) -> Run | None:
+    run=RUNS.get(conversation_id)
+    return run if run and run.owner_id==owner_id else None
 
-def get(conversation_id: str) -> Run | None:
-    return RUNS.get(conversation_id)
-
-
-def active_for(session_id: str) -> list[dict]:
-    return [{"conversation_id": r.conversation_id, "run_id": r.id}
-            for r in RUNS.values() if r.status == "running" and r.session_id == session_id]
-
+def active_for(owner_id: str) -> list[dict]:
+    return [{"conversation_id":r.conversation_id,"run_id":r.id} for r in RUNS.values() if r.status=="running" and r.owner_id==owner_id]
 
 def sse(obj: dict) -> str:
     return f"data: {json.dumps(obj)}\n\n"
 
 
-async def tail(run: Run, after: int = 0):
+async def tail(run: Run, after: int = 0, authorized=None):
     """Yield SSE frames from cursor `after`, live-tailing until the run is
     terminal. Heartbeat comments every 15s keep proxies from idling out."""
     i = after
     while True:
+        if authorized is not None and not await authorized():
+            yield sse({"type":"session_expired","message":"Sign in to continue"})
+            return
         if i < len(run.events):
             batch = run.events[i:]
             i = len(run.events)
@@ -110,7 +119,7 @@ async def _finish_stopped(run: Run, trace: list[dict], t_run: float):
         if steps else "⏹ Stopped by you before any agent finished."
     )
     try:
-        await db.add_message(run.conversation_id, "assistant", partial, {"steps": trace} if steps else None)
+        await db.add_message(run.owner_id, run.conversation_id, "assistant", partial, {"steps": trace} if steps else None)
     except Exception:  # noqa: BLE001
         pass
     await run.finish("stopped", {"type": "stopped", "conversation_id": run.conversation_id,
@@ -119,6 +128,16 @@ async def _finish_stopped(run: Run, trace: list[dict], t_run: float):
 
 
 async def execute_run(run: Run, *, message: str, raw_files: list, cfg: dict):
+    with execution_scope(Execution(run.owner_id,run.id,run.mode,run.example_id)):
+        try:
+            await asyncio.wait_for(_execute_run(run,message=message,raw_files=raw_files,cfg=cfg),1200)
+        except Exception:
+            # Persistence failure cannot be represented as a completed report.
+            run.status="error"
+            run.events.append({"type":"error","message":"The run could not be saved. Please try again later."})
+            run._notify()
+
+async def _execute_run(run: Run, *, message: str, raw_files: list, cfg: dict):
     t_run = time.time()
     cid = run.conversation_id
     trace: list[dict] = []
@@ -126,7 +145,7 @@ async def execute_run(run: Run, *, message: str, raw_files: list, cfg: dict):
         file_texts, file_images, file_names = [], [], []
         for name, data in raw_files:
             try:
-                ext = extract_file(name, data)
+                ext = await asyncio.to_thread(extract_file,name,data)
             except ExtractError as e:
                 await run.finish("error", {"type": "error", "message": str(e)})
                 return
@@ -144,15 +163,15 @@ async def execute_run(run: Run, *, message: str, raw_files: list, cfg: dict):
         stages = build_stages({**cfg, "agents": agents})
         seq = node_sequence(stages)
 
-        history = await db.get_history(cid)
+        history = await db.get_history(run.owner_id, cid)
         user_record = message
         if file_names:
             user_record += f"\n[attached: {', '.join(file_names)}]"
-        await db.add_message(cid, "user", user_record)
+        await db.add_message(run.owner_id, cid, "user", user_record)
 
         def node_display(n):
             if n["agent_key"] == "router":
-                return "Router", ROUTER_MODEL
+                return "Router", model_label(settings)
             if n.get("stage"):
                 name = n["stage"]["name"]
             else:
@@ -168,7 +187,9 @@ async def execute_run(run: Run, *, message: str, raw_files: list, cfg: dict):
         by_node = {}
         for n in seq:
             name, model = node_display(n)
-            info = {"node": n["node"], "agent": name, "label": n["label"], "model": model}
+            if run.mode in {"cached","mock"}:
+                model="Prepared example — no provider" if run.mode=="cached" else "Synthetic mock — no provider"
+            info = {"node": n["node"], "agent": name, "label": n["label"], "model": model, "cached":run.mode=="cached"}
             plan_nodes.append(info)
             by_node[n["node"]] = info
         await run.emit({"type": "plan", "conversation_id": cid, "nodes": plan_nodes})
@@ -200,7 +221,7 @@ async def execute_run(run: Run, *, message: str, raw_files: list, cfg: dict):
                 trace.append(step)
                 await run.emit({"type": "node_complete", **step})
 
-        await db.add_message(cid, "assistant", final_text, {"steps": trace})
+        await db.add_message(run.owner_id, cid, "assistant", final_text, {"steps": trace})
         await run.finish("done", {"type": "final", "conversation_id": cid, "output": final_text,
                                   "trace": trace, "total_elapsed": round(time.time() - t_run, 1)})
     except asyncio.CancelledError:
@@ -211,7 +232,6 @@ async def execute_run(run: Run, *, message: str, raw_files: list, cfg: dict):
     except ConfigError as e:
         await run.finish("error", {"type": "error", "message": str(e)})
     except Exception as e:  # noqa: BLE001
-        msg = str(e)
-        if "authentication" in msg.lower() or "api key" in msg.lower() or "401" in msg:
-            msg = "The API key was rejected by the provider. Check the key in Settings."
-        await run.finish("error", {"type": "error", "message": f"Run failed at the model call: {msg[:500]}"})
+        from .usage import BudgetError
+        safe=str(e) if isinstance(e,(BudgetError,db.StorageLimitError)) else "The provider or storage service could not complete this run. No automatic retry was made."
+        await run.finish("error", {"type":"error","message":safe})

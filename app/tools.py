@@ -1,49 +1,65 @@
-"""Agent 1's tools: web search (DuckDuckGo, keyless) and web fetch."""
+"""Council web tools: public-address-only transport and verified run scope."""
+from urllib.parse import parse_qs, quote, urlsplit
 
-import httpx
 from bs4 import BeautifulSoup
-from ddgs import DDGS
 from langchain_core.tools import tool
 
+from .execution import require_live_tools
+from .safe_network import NetworkDenied, _parse_url, public_get
+
 FETCH_CHAR_CAP = 18000
-UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 
 
 @tool
 def web_search(query: str) -> str:
-    """Search the web for current information. Returns top results with title, snippet and URL. Call this when the answer depends on facts not in the brief — market sizes, competitors, prices, recent events."""
+    """Search public web pages for current facts. Returns titles, snippets and URLs; read relevant pages before citing them."""
+    require_live_tools()
+    if not isinstance(query, str) or not query.strip() or len(query) > 500:
+        return "Search rejected: use a query of 1–500 characters."
     try:
-        results = list(DDGS().text(query, max_results=6))
-    except Exception as e:  # noqa: BLE001
-        return f"Search failed: {e}. Try a different query or proceed with stated assumptions."
-    if not results:
-        return "No results found. Try a broader query."
-    lines = []
-    for r in results:
-        lines.append(f"- {r.get('title', '')}\n  {r.get('body', '')}\n  URL: {r.get('href', '')}")
-    return "\n".join(lines)
+        # A fixed keyless endpoint through the same pinned transport as fetch.
+        # DDGS's independent HTTP clients/alternate backends are not an escape.
+        response = public_get("https://html.duckduckgo.com/html/?q=" + quote(query.strip(), safe=""))
+        soup = BeautifulSoup(response.text, "html.parser")
+        results = []
+        for result in soup.select(".result"):
+            anchor = result.select_one("a.result__a")
+            if anchor is None:
+                continue
+            href = anchor.get("href", "")
+            parsed = urlsplit(href)
+            if parsed.hostname in ("duckduckgo.com", "www.duckduckgo.com") or href.startswith("/l/?"):
+                href = parse_qs(parsed.query).get("uddg", [""])[0]
+            try:
+                _parse_url(href)
+            except NetworkDenied:
+                continue
+            snippet = result.select_one(".result__snippet")
+            title = " ".join(anchor.get_text(" ", strip=True).split())[:300]
+            body = " ".join(snippet.get_text(" ", strip=True).split())[:1200] if snippet else ""
+            results.append(f"- {title}\n  {body}\n  URL: {href}")
+            if len(results) == 6:
+                break
+        return "\n".join(results) or "Search returned no readable results. Try a broader query or state the evidence gap."
+    except NetworkDenied:
+        return "Search is unavailable or exceeded its safe request limits. Proceed only with stated evidence gaps."
 
 
 @tool
 def web_fetch(url: str) -> str:
-    """Fetch a web page and return its readable text. Call this to read a URL from the brief or a promising search result before citing it."""
+    """Read a public HTTP(S) page as text. Private networks, nonstandard ports and oversized responses are denied."""
+    require_live_tools()
     try:
-        resp = httpx.get(
-            url, headers={"User-Agent": UA}, timeout=15, follow_redirects=True
-        )
-        resp.raise_for_status()
-    except Exception as e:  # noqa: BLE001
-        return f"Fetch failed for {url}: {e}"
-    ctype = resp.headers.get("content-type", "")
-    if "html" not in ctype and "text" not in ctype and "json" not in ctype:
-        return f"Unsupported content type at {url}: {ctype}"
-    soup = BeautifulSoup(resp.text, "html.parser")
-    for tag in soup(["script", "style", "noscript", "header", "footer", "nav"]):
-        tag.decompose()
-    text = " ".join(soup.get_text(separator=" ").split())
-    if len(text) > FETCH_CHAR_CAP:
-        text = text[:FETCH_CHAR_CAP] + " …[truncated]"
-    return f"Content of {url}:\n{text}"
+        response = public_get(url)
+        soup = BeautifulSoup(response.text, "html.parser")
+        for tag in soup(["script", "style", "noscript", "header", "footer", "nav"]):
+            tag.decompose()
+        text = " ".join(soup.get_text(separator=" ").split())
+        if len(text) > FETCH_CHAR_CAP:
+            text = text[:FETCH_CHAR_CAP] + " …[truncated]"
+        return f"Content of {response.url}:\n{text}"
+    except NetworkDenied:
+        return "Fetch denied or unavailable: only bounded public HTTP(S) text pages are supported."
 
 
 ANALYST_TOOLS = [web_search, web_fetch]

@@ -9,13 +9,18 @@ Every failure path degrades silently to no-plan (= today's behavior)."""
 import asyncio
 import os
 
-from langchain_anthropic import ChatAnthropic
+from .llm import build_llm, resolve_model
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from . import db
 
 ROUTER_MODEL = "claude-haiku-4-5"
 COMPOSER_MODEL = "claude-sonnet-5"
+
+def model_label(settings: dict) -> str:
+    router = resolve_model(settings, "router", ROUTER_MODEL)
+    composer = resolve_model(settings, "composer", COMPOSER_MODEL)
+    return router if router == composer else f"{router} / {composer}"
 
 # stage id -> KB reviewer role + hard caps (attention budget, spec §2/§3)
 LENS_ROLES = {"reviewer": "vera", "client": "cleo"}
@@ -94,19 +99,12 @@ COMPOSER_SCHEMA = {
 }
 
 
-def _anthropic_key(settings: dict) -> str:
-    s = settings or {}
-    user_key = (s.get("api_key") or "").strip()
-    if (s.get("provider") or "claude") == "claude" and user_key:
-        return user_key
-    return os.environ.get("ANTHROPIC_API_KEY", "")
+def _llm(model: str, settings: dict, max_tokens: int):
+    role="router" if model==ROUTER_MODEL else "composer"
+    # Uses the selected provider and the same budget/mock context as the council.
+    return build_llm(settings,role,model,max_tokens=max_tokens)
 
-
-def _llm(model: str, key: str, max_tokens: int):
-    return ChatAnthropic(model=model, api_key=key, max_tokens=max_tokens, timeout=90)
-
-
-async def _route_for(stage_id: str, index: list[dict], ask: str, brief: str, key: str) -> list[dict]:
+async def _route_for(stage_id: str, index: list[dict], ask: str, brief: str, key: dict) -> list[dict]:
     """One haiku call: select up to cap lenses for one expert reviewer."""
     role = LENS_ROLES[stage_id]
     cap = LENS_CAPS[stage_id]["lenses"]
@@ -134,7 +132,7 @@ async def _route_for(stage_id: str, index: list[dict], ask: str, brief: str, key
     return [l for l in out.get("lenses", []) if l.get("id") in valid][:cap]
 
 
-async def _compose(selection: dict, frameworks: dict, ask: str, brief: str, key: str) -> dict:
+async def _compose(selection: dict, frameworks: dict, ask: str, brief: str, key: dict) -> dict:
     """One sonnet call: contextualize the selected frameworks' interrogation
     sets into per-reviewer plans (deduped, capped, lens-tagged)."""
     sections = []
@@ -196,9 +194,7 @@ async def prepare_lens_plans(expert_stages: list[dict], ask: str, brief: str, se
     NEVER raises — any KB/DB/router failure returns ({}, reason) and the run
     proceeds exactly as today."""
     try:
-        key = _anthropic_key(settings)
-        if not key:
-            return {}, "(lens selection skipped: no Anthropic key for router)"
+        key = settings
         stage_ids = [st["id"] for st in expert_stages if st["id"] in LENS_ROLES]
         roles = [LENS_ROLES[s] for s in stage_ids]
         index = await db.fetch_framework_index(roles)
@@ -211,7 +207,7 @@ async def prepare_lens_plans(expert_stages: list[dict], ask: str, brief: str, se
         selection = {}
         for sid, res in zip(stage_ids, routed):
             if isinstance(res, Exception):
-                print(f"[lens_prep] router failed for {sid}: {type(res).__name__}: {res}", flush=True)
+                print("[lens_prep] router unavailable; continuing with built-in lenses", flush=True)
             elif res:
                 selection[sid] = res
         if not selection:
@@ -233,5 +229,5 @@ async def prepare_lens_plans(expert_stages: list[dict], ask: str, brief: str, se
         names = {st["id"]: st["name"] for st in expert_stages}
         return lens_plan, _summary({s: selection[s] for s in lens_plan}, plans, names)
     except Exception as e:  # noqa: BLE001 — non-negotiable: never block the run
-        print(f"[lens_prep] degraded to no-lens: {type(e).__name__}: {e}", flush=True)
+        print("[lens_prep] optional plan unavailable; continuing with built-in lenses", flush=True)
         return {}, f"(lens selection skipped: {type(e).__name__} — running with built-in lenses)"

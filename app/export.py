@@ -10,6 +10,8 @@ PNG data URLs in `diagrams`, consumed in order of appearance.
 """
 
 import base64
+import json
+from urllib.parse import urlparse
 import io
 import re
 import datetime
@@ -63,6 +65,9 @@ def _extract_sources(markdown: str) -> tuple[str, list[str]]:
 
     def repl(m):
         url = m.group(1).rstrip(".,;)")
+        parsed=urlparse(url)
+        if parsed.scheme not in {'http','https'} or not parsed.hostname or any(ord(c)<32 for c in url) or len(url)>2048:
+            return '[unsupported source link]'
         if url not in sources:
             sources.append(url)
         return f"[{sources.index(url) + 1}]"
@@ -139,15 +144,36 @@ def _png_size(data: bytes) -> tuple[int, int]:
 
 
 def _decode_diagrams(diagrams: list | None) -> list[bytes | None]:
-    out = []
-    for d in diagrams or []:
+    from PIL import Image
+    if not isinstance(diagrams or [],list) or len(diagrams or [])>12:
+        raise ValueError('At most 12 diagram images are allowed')
+    out=[];total=0
+    for diagram in diagrams or []:
+        if diagram is None or diagram=='':
+            out.append(None);continue
+        if not isinstance(diagram,str) or not diagram.startswith('data:image/png;base64,') or len(diagram)>2800000:
+            raise ValueError('Diagrams must be bounded PNG data URLs')
         try:
-            if isinstance(d, str) and d.startswith("data:image"):
-                d = d.split(",", 1)[1]
-            out.append(base64.b64decode(d) if d else None)
-        except Exception:  # noqa: BLE001
-            out.append(None)
+            data=base64.b64decode(diagram.split(',',1)[1],validate=True)
+            total+=len(data)
+            if len(data)>2*1024*1024 or total>6*1024*1024:raise ValueError('Diagram byte limit exceeded')
+            with Image.open(io.BytesIO(data)) as image:
+                if image.format!='PNG' or image.width*image.height>16000000 or max(image.size)>10000:
+                    raise ValueError('Diagram dimensions exceed the limit')
+                image.verify()
+        except Exception as exc:
+            raise ValueError('Invalid or oversized diagram image') from exc
+        out.append(data)
     return out
+
+def validate_export(payload):
+    if not isinstance(payload,dict):raise ValueError('Invalid export request')
+    fmt=payload.get('format','pdf');title=payload.get('title') or 'Market research report';markdown=payload.get('markdown','');diagrams=payload.get('diagrams') or []
+    if fmt not in {'pdf','pptx'}:raise ValueError('Choose PDF or PPTX')
+    if not isinstance(title,str) or len(title)>160 or not isinstance(markdown,str) or not markdown.strip() or len(markdown)>150000 or len(markdown.splitlines())>3000:
+        raise ValueError('Export text is empty or exceeds the limit')
+    _decode_diagrams(diagrams)
+    return fmt,title,markdown,diagrams
 
 
 # ---------------- PDF: Typst engine (primary) ----------------
@@ -281,8 +307,7 @@ def _pdf_via_typst(title: str, markdown: str, diagrams: list | None = None) -> b
             if img is not None:
                 body.append(f'#align(center, image("d{di - 1}.png", width: 86%))')
         elif kind == "code":
-            fence = "````" if "```" in payload else "```"
-            body.append(f"{fence}\n{payload}\n{fence}")
+            body.append('#raw('+json.dumps(payload,ensure_ascii=False)+', block: true)')
         else:
             body.append(_t_inline(payload))
         i += 1
@@ -291,7 +316,7 @@ def _pdf_via_typst(title: str, markdown: str, diagrams: list | None = None) -> b
         body.append("= Sources")
         for n, url in enumerate(sources, 1):
             safe = _t_escape(url)
-            body.append(f'#text(size: 8.4pt)[[{n}] #link("{url}")[{safe}]] \\')
+            body.append(f'#text(size: 8.4pt)[[{n}] #link({json.dumps(url,ensure_ascii=False)})[{safe}]] \\')
 
     doc = (_T_PREAMBLE
            .replace("__HEADER_TITLE__", _t_escape(title[:80]))
@@ -307,14 +332,14 @@ def _pdf_via_typst(title: str, markdown: str, diagrams: list | None = None) -> b
         main = os.path.join(tmp, "report.typ")
         with open(main, "w", encoding="utf-8") as f:
             f.write(doc)
-        return bytes(typst.compile(main, font_paths=[str(_FONT_DIR)]))
+        return bytes(typst.compile(main, root=tmp, font_paths=[str(_FONT_DIR)]))
 
 
 def to_pdf(title: str, markdown: str, diagrams: list | None = None) -> bytes:
     try:
         return _pdf_via_typst(title, markdown, diagrams)
     except Exception as e:  # noqa: BLE001 — never fail an export on the new engine
-        print(f"[export] typst engine failed, falling back to fpdf2: {type(e).__name__}: {e}", flush=True)
+        print("[export] primary layout unavailable; using PDF fallback", flush=True)
         return _pdf_via_fpdf(title, markdown, diagrams)
 
 

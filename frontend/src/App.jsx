@@ -4,6 +4,9 @@ import PromptsTab from './tabs/PromptsTab.jsx'
 import ObservabilityTab from './tabs/ObservabilityTab.jsx'
 import SettingsTab from './tabs/SettingsTab.jsx'
 import { getDefaults } from './api.js'
+import AccountGate, { Brand, ThemeButton } from './AccountGate.jsx'
+import { storageKey } from './session.js'
+import { restoreConversationRuns } from './history.js'
 
 const TABS = [
   { id: 'chat', label: 'Chat' },
@@ -22,42 +25,47 @@ function load(key, fallback) {
 }
 
 export default function App() {
+  return <AccountGate>{account => <Workspace key={account.user?.id || 'local-fixture'} account={account} />}</AccountGate>
+}
+
+function Workspace({ account }) {
+  const owner = account.user?.id || 'local-fixture'
+  const pref = name => storageKey(owner, name)
+  const [accountError, setAccountError] = useState('')
   const [tab, setTab] = useState('chat')
   const [defaults, setDefaults] = useState(null)
-  const [agents, setAgents] = useState(() => load('mra_agents', null))
-  const [customAgents, setCustomAgents] = useState(() => load('mra_custom_agents', []))
-  const [stageOrder, setStageOrder] = useState(() => load('mra_stage_order', ['reviewer', 'client']))
-  const [toggles, setToggles] = useState(() => load('mra_toggles', { reviewer: true, client: true, custom: {} }))
-  const [settings, setSettings] = useState(() => load('mra_settings', { provider: 'claude', model: '', api_key: '' }))
-  const [runs, setRuns] = useState([]) // observability: this session's runs
+  const [agents, setAgents] = useState(() => load(pref('agents'), null))
+  const [customAgents, setCustomAgents] = useState(() => load(pref('custom_agents'), []))
+  const [stageOrder, setStageOrder] = useState(() => load(pref('stage_order'), ['reviewer', 'client']))
+  const [toggles, setToggles] = useState(() => load(pref('toggles'), { reviewer: true, client: true, custom: {} }))
+  const [settings, setSettings] = useState(() => { const saved = load(pref('settings'), {}); return { provider: saved.provider || '', model: saved.model || '', api_key: '' } })
+  const [runs, setRuns] = useState([]) // live runs plus traces restored from selected history
 
   useEffect(() => {
     getDefaults()
       .then((d) => {
         setDefaults(d)
         // Server prompt upgrades replace cached prompts (incl. user edits) once per version bump.
-        const seenVersion = localStorage.getItem('mra_prompts_v')
+        const seenVersion = localStorage.getItem(pref('prompts_v'))
         if (String(d.prompts_version) !== seenVersion) {
-          localStorage.setItem('mra_prompts_v', String(d.prompts_version))
+          localStorage.setItem(pref('prompts_v'), String(d.prompts_version))
           setAgents(d.agents)
         } else {
           setAgents((cur) => cur || d.agents)
         }
         setSettings((cur) => {
-          let s = cur.model ? cur : { ...cur, model: d.default_model }
-          // One-time migration to the per-agent "auto" default (Claude only).
-          if ((s.mv || 0) < 2) s = { ...s, model: s.provider === 'openai' ? s.model : 'auto', mv: 2 }
-          return s
+          const provider = cur.provider || d.default_provider || 'claude'
+          return { ...cur, provider, model: cur.model || (provider === d.default_provider ? d.default_model : provider === 'claude' ? 'auto' : d.models?.[provider]?.[0] || '') }
         })
       })
       .catch(() => setDefaults({ error: true }))
   }, [])
 
-  useEffect(() => { if (agents) localStorage.setItem('mra_agents', JSON.stringify(agents)) }, [agents])
-  useEffect(() => { localStorage.setItem('mra_custom_agents', JSON.stringify(customAgents)) }, [customAgents])
-  useEffect(() => { localStorage.setItem('mra_stage_order', JSON.stringify(stageOrder)) }, [stageOrder])
-  useEffect(() => { localStorage.setItem('mra_toggles', JSON.stringify(toggles)) }, [toggles])
-  useEffect(() => { localStorage.setItem('mra_settings', JSON.stringify(settings)) }, [settings])
+  useEffect(() => { if (agents) localStorage.setItem(pref('agents'), JSON.stringify(agents)) }, [agents])
+  useEffect(() => { localStorage.setItem(pref('custom_agents'), JSON.stringify(customAgents)) }, [customAgents])
+  useEffect(() => { localStorage.setItem(pref('stage_order'), JSON.stringify(stageOrder)) }, [stageOrder])
+  useEffect(() => { localStorage.setItem(pref('toggles'), JSON.stringify(toggles)) }, [toggles])
+  useEffect(() => { localStorage.setItem(pref('settings'), JSON.stringify({ provider: settings.provider, model: settings.model })) }, [settings])
 
   const config = useMemo(
     () => ({
@@ -71,15 +79,15 @@ export default function App() {
     [agents, customAgents, stageOrder, toggles, settings],
   )
 
-  if (!defaults) return <div className="boot">Loading the council…</div>
+  if (!defaults) return <div className="boot" role="status">Loading the council…</div>
+  if (defaults.error) return <main className="account-retry"><h1>The council is unavailable.</h1><p>Reload to try again.</p><button className="save" onClick={() => location.reload()}>Reload</button></main>
 
   return (
     <div className="shell">
       <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark">◆</span>
-          <span className="brand-name">Agent Council</span>
-          <span className="brand-sub">market research, sharpened by review</span>
+        <Brand />
+        <div className="account-actions"><span className="account-email" title={account.user?.email}>{account.user?.email || 'Local fixture'}</span><ThemeButton theme={account.theme} setTheme={account.setTheme} />
+          {account.enabled && <button className="ghost" onClick={() => account.signOut().catch(e => setAccountError(e.message))}>Sign out</button>}
         </div>
         <nav className="tabs">
           {TABS.map((t) => (
@@ -89,16 +97,19 @@ export default function App() {
           ))}
         </nav>
       </header>
+      {accountError && <p className="error-box" role="alert">{accountError}</p>}
       <main className="content">
         {/* All tabs stay mounted so a running chat survives tab switches. */}
         <div className={tab === 'chat' ? 'tab-pane' : 'tab-pane hidden'}>
           <ChatTab
+            owner={owner}
             config={config}
             agents={agents || {}}
             customAgents={customAgents}
             toggles={toggles}
             setToggles={setToggles}
             onRunUpdate={(run) => setRuns((r) => { const i = r.findIndex((x) => x.id === run.id); if (i === -1) return [run, ...r]; const c = [...r]; c[i] = run; return c })}
+            onHistoryRestore={(cid, messages) => setRuns(r => restoreConversationRuns(r, cid, messages))}
           />
         </div>
         <div className={tab === 'prompts' ? 'tab-pane' : 'tab-pane hidden'}>
