@@ -1,3 +1,4 @@
+import {removePreference} from './preferences.js'
 // Client ordering only; server cookie, CSRF and owner checks remain authoritative.
 export function createSessionFence() {
   let owner, generation = 0
@@ -57,5 +58,5 @@ export async function requestJSON(path, options = {}) {
 }
 export const storageKey = (owner, name) => `mra:${owner}:${name}`
 export function removeLegacyPreferences() {
-  for (const key of ['mra_session','mra_agents','mra_custom_agents','mra_stage_order','mra_toggles','mra_settings','mra_prompts_v','mra_conversation']) localStorage.removeItem(key)
+  for (const key of ['mra_session','mra_agents','mra_custom_agents','mra_stage_order','mra_toggles','mra_settings','mra_prompts_v','mra_conversation']) removePreference(key)
 }

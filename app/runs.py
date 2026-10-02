@@ -215,12 +215,16 @@ async def _execute_run(run: Run, *, message: str, raw_files: list, cfg: dict):
                 out = (delta or {}).get("last_output", "")
                 elapsed = round(time.time() - t_node, 1)
                 t_node = time.time()
-                if (delta or {}).get("analysis"):
+                if "analysis" in (delta or {}):
+                    if not isinstance(delta["analysis"],str) or not delta["analysis"].strip():
+                        raise ConfigError("The model returned an empty deliverable. Known usage is retained; no automatic retry was made.")
                     final_text = delta["analysis"]
                 step = {**by_node[node], "output": out, "elapsed": elapsed}
                 trace.append(step)
                 await run.emit({"type": "node_complete", **step})
 
+        if not final_text.strip():
+            raise ConfigError("The run produced no deliverable. No automatic retry was made.")
         await db.add_message(run.owner_id, cid, "assistant", final_text, {"steps": trace})
         await run.finish("done", {"type": "final", "conversation_id": cid, "output": final_text,
                                   "trace": trace, "total_elapsed": round(time.time() - t_run, 1)})

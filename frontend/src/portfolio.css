@@ -53,7 +53,8 @@ code, pre, .prompt-area, .modal-result { font-family: var(--font-mono); }
 .msg-body { box-shadow: none; overflow-wrap: anywhere; }
 .msg.user .msg-body { background: var(--bg-secondary); }
 .msg.user .msg-who, .md a { color: var(--fg-accent); }
-.md table { display: block; overflow-x: auto; }
+.md table { display: block; max-width: 100%; overflow-x: auto; overflow-wrap: normal; word-break: normal; }
+.md th, .md td { min-width: 7rem; }
 .md pre { overflow-x: auto; }
 .md th { color: var(--fg-secondary); }
 .mermaid-holder { background: var(--bg-secondary); }

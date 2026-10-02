@@ -1,6 +1,7 @@
 # Loop.MD
 status: on — free launch verification only
 
+Current 2 October FMEA candidate: use `docs/qa/2026-10-02/report.md` for exact free-check counts and remaining release gates. No new paid authorization is inferred; local previews are9002 (GetCited) and9004 (Market Research).
 **Goal:** preserve the complete council workflow while proving authenticated tenant isolation, bounded resource use, cached examples and a usable shared UI. This launch authorizes free checks after meaningful changes; it does not authorize repeated paid evaluations.
 
 ## Current launch checks

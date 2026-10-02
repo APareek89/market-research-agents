@@ -1,0 +1,48 @@
+{
+  "scenario_count": 111,
+  "category_counts": {
+    "unhandled_error_paths": 10,
+    "external_dependency_failures": 9,
+    "race_conditions_and_state": 9,
+    "resource_exhaustion": 9,
+    "security_access_control": 9,
+    "data_integrity_partial_writes": 10,
+    "observability_gaps": 9,
+    "scale_and_load_failures": 9,
+    "billing_credit_mismatches": 9,
+    "retry_idempotency_issues": 9,
+    "config_feature_flag_drift": 9,
+    "edge_cases_from_prd": 10
+  },
+  "status_counts": {
+    "controlled": 89,
+    "fixed": 13,
+    "product_limit": 6,
+    "historical_limit": 1,
+    "unverified": 2
+  },
+  "evidence_counts": {
+    "source_inspection": 49,
+    "automated": 56,
+    "scenario_simulation": 3,
+    "not_run": 3
+  },
+  "priority_counts": {
+    "P2": 96,
+    "P1": 15
+  },
+  "repository_category_counts": {
+    "input_validation": 9,
+    "external_api_failure": 9,
+    "state_consistency": 9,
+    "resource_exhaustion": 9,
+    "auth_session": 4,
+    "security_access_control": 5,
+    "data_loss_persistence": 10,
+    "error_handling_gaps": 10,
+    "concurrency_race": 9,
+    "cost_runaway": 9,
+    "ux_dead_ends": 19,
+    "deployment_config": 9
+  }
+}

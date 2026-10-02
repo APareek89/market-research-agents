@@ -7,6 +7,7 @@ import { getDefaults } from './api.js'
 import AccountGate, { Brand, ThemeButton } from './AccountGate.jsx'
 import { storageKey } from './session.js'
 import { restoreConversationRuns } from './history.js'
+import {loadPreference,readPreference,writePreference} from './preferences.js'
 
 const TABS = [
   { id: 'chat', label: 'Chat' },
@@ -14,15 +15,6 @@ const TABS = [
   { id: 'observability', label: 'Observability' },
   { id: 'settings', label: 'API & Model' },
 ]
-
-function load(key, fallback) {
-  try {
-    const v = JSON.parse(localStorage.getItem(key))
-    return v ?? fallback
-  } catch {
-    return fallback
-  }
-}
 
 export default function App() {
   return <AccountGate>{account => <Workspace key={account.user?.id || 'local-fixture'} account={account} />}</AccountGate>
@@ -34,11 +26,11 @@ function Workspace({ account }) {
   const [accountError, setAccountError] = useState('')
   const [tab, setTab] = useState('chat')
   const [defaults, setDefaults] = useState(null)
-  const [agents, setAgents] = useState(() => load(pref('agents'), null))
-  const [customAgents, setCustomAgents] = useState(() => load(pref('custom_agents'), []))
-  const [stageOrder, setStageOrder] = useState(() => load(pref('stage_order'), ['reviewer', 'client']))
-  const [toggles, setToggles] = useState(() => load(pref('toggles'), { reviewer: true, client: true, custom: {} }))
-  const [settings, setSettings] = useState(() => { const saved = load(pref('settings'), {}); return { provider: saved.provider || '', model: saved.model || '', api_key: '' } })
+  const [agents, setAgents] = useState(() => loadPreference(pref('agents'), 'agents', null))
+  const [customAgents, setCustomAgents] = useState(() => loadPreference(pref('custom_agents'), 'custom_agents', []))
+  const [stageOrder, setStageOrder] = useState(() => loadPreference(pref('stage_order'), 'stage_order', ['reviewer', 'client']))
+  const [toggles, setToggles] = useState(() => loadPreference(pref('toggles'), 'toggles', { reviewer: true, client: true, custom: {} }))
+  const [settings, setSettings] = useState(() => { const saved = loadPreference(pref('settings'), 'settings', {}); return { provider: saved.provider || '', model: saved.model || '', api_key: '' } })
   const [runs, setRuns] = useState([]) // live runs plus traces restored from selected history
 
   useEffect(() => {
@@ -46,9 +38,9 @@ function Workspace({ account }) {
       .then((d) => {
         setDefaults(d)
         // Server prompt upgrades replace cached prompts (incl. user edits) once per version bump.
-        const seenVersion = localStorage.getItem(pref('prompts_v'))
+        const seenVersion = readPreference(pref('prompts_v'))
         if (String(d.prompts_version) !== seenVersion) {
-          localStorage.setItem(pref('prompts_v'), String(d.prompts_version))
+          writePreference(pref('prompts_v'), String(d.prompts_version))
           setAgents(d.agents)
         } else {
           setAgents((cur) => cur || d.agents)
@@ -61,11 +53,11 @@ function Workspace({ account }) {
       .catch(() => setDefaults({ error: true }))
   }, [])
 
-  useEffect(() => { if (agents) localStorage.setItem(pref('agents'), JSON.stringify(agents)) }, [agents])
-  useEffect(() => { localStorage.setItem(pref('custom_agents'), JSON.stringify(customAgents)) }, [customAgents])
-  useEffect(() => { localStorage.setItem(pref('stage_order'), JSON.stringify(stageOrder)) }, [stageOrder])
-  useEffect(() => { localStorage.setItem(pref('toggles'), JSON.stringify(toggles)) }, [toggles])
-  useEffect(() => { localStorage.setItem(pref('settings'), JSON.stringify({ provider: settings.provider, model: settings.model })) }, [settings])
+  useEffect(() => { if (agents) writePreference(pref('agents'), JSON.stringify(agents)) }, [agents])
+  useEffect(() => { writePreference(pref('custom_agents'), JSON.stringify(customAgents)) }, [customAgents])
+  useEffect(() => { writePreference(pref('stage_order'), JSON.stringify(stageOrder)) }, [stageOrder])
+  useEffect(() => { writePreference(pref('toggles'), JSON.stringify(toggles)) }, [toggles])
+  useEffect(() => { writePreference(pref('settings'), JSON.stringify({ provider: settings.provider, model: settings.model })) }, [settings])
 
   const config = useMemo(
     () => ({

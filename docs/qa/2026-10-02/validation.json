@@ -1,0 +1,25 @@
+{
+  "date": "2026-10-02",
+  "baseline_commit": "f7e7ebec378d33168b9b49ab65f0d1a88209aeae",
+  "scope": "local_free_candidate",
+  "real_provider_calls": 0,
+  "deployed_by_worker": false,
+  "scenario_count": 111,
+  "tests": {
+    "offline_backend_tests": 37,
+    "normal_auth_http_test_groups": 5,
+    "frontend_node_tests": 16
+  },
+  "production_build": "passed",
+  "typecheck": "not_applicable_python_js",
+  "browser": "passed_scoped_root_checks; see browser-qa.json",
+  "network": "Local server and SDK fixture runners reject non-loopback network. SDK responses are explicit fixtures.",
+  "historical_receipts_preserved": true,
+  "matrix_validation": "passed: IDs/scenarios unique,12categories,SOD product,counts,CSV/JSON parity,evidence paths exist",
+  "new_source_files": [
+    "frontend/src/preferences.js"
+  ],
+  "tests_and_build_logs": "External worker receipts retained in _workstreams/app-fmea-20261002; reports list distinct scopes.",
+  "tracked_runtime_diff_sha256": "a936e6fe097826dd09aaea269f52e2eca5b82299201f5e3a7cf4babb444a2ebf",
+  "inventory_note": "Diff hash excludes untracked files; new source paths are listed separately. Exact source/archive identity is a later packaging gate."
+}

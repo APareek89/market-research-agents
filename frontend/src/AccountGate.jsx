@@ -1,3 +1,4 @@
+import {readPreference,writePreference} from './preferences.js'
 import React, { useEffect, useRef, useState } from 'react'
 import { ArrowRight, Loader2, Moon, Network, Sun } from 'lucide-react'
 import { readSession, acceptSession, request, removeLegacyPreferences } from './session.js'
@@ -14,7 +15,7 @@ export default function AccountGate({ children }) {
   const [session, setSession] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [theme, setTheme] = useState(() => localStorage.getItem('mra_theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'))
+  const [theme, setTheme] = useState(() => readPreference('mra_theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'))
   const epoch = useRef(0)
   function apply(value) { acceptSession(value); setSession(value); setError(''); removeLegacyPreferences() }
   async function refresh() {
@@ -26,7 +27,7 @@ export default function AccountGate({ children }) {
   useEffect(() => {
     document.documentElement.classList.add('lovable-ui')
     document.documentElement.dataset.theme = theme
-    localStorage.setItem('mra_theme', theme)
+    writePreference('mra_theme', theme)
     window.dispatchEvent(new Event('mra-theme-change'))
   }, [theme])
   useEffect(() => {

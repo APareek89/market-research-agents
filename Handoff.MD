@@ -1,22 +1,21 @@
 # Handoff — market-research-agents
-last-synced: f43df7ccefb74fffdd1f6354b7cc18cb51afb038
+last-synced: f7e7ebec378d33168b9b49ab65f0d1a88209aeae
 
 **Magic phrase:** `Refer to Handoff.MD in this repository and begin`
 
-## Current state
-- Live: https://market-research.3-6-183-210.sslip.io, image `c089e8e8463d4534`. Original council behavior is preserved with real accounts, owner-scoped durable storage, private immutable uploads and bounded provider dispatch.
-- 36 backend contracts and 13 frontend checks passed; original 35-check baseline is separate. Live free tests prove two-account auth/isolation, six cached stages/replay, exact private upload version/hash, real exports, revocation, TLS and unchanged prior rows. Root browser passed saved traces, themes,390px and account flow.
-- Corrected paid proof completed one report using prepared Scout + one live GPT-5-mini analyst with reviewers off. First billed attempt failed only in the temporary response guard; both outcomes are retained. Two dispatches total: estimated $0.0034410, not an invoice.
-- Quality limit: final report recommends Growth at $0.15/image but assumes four Basic plans can be bought. No fully paid council/current-research/factual-validation claim.
-- Independent paid SQL/hash verification and ordinary-live restoration passed. Final root browser smoke opened the actual saved report/trace and a new free example with no console errors. Frontend/app source is frozen; source release gate remains.
+## Current local candidate — 2 October 2026
+- Runtime frozen after 111-scenario/12-category FMEA. Six grouped corrections: typed configuration, terminal provider status, safe rejection metadata, optional schema-validated preferences, visible Stop failures, readable scrolling report tables. [Evidence report](docs/qa/2026-10-02/report.md).
+- 37 offline backend tests +5 normal-auth HTTP groups +16 frontend tests and Vite build pass. Six-stage real SDK/graph/PostgreSQL run uses independently session-authored fictional replies; zero real provider calls.
+- The current keyless normal-auth preview is 9004. Root owns browser screenshots, exact-image build/smoke/deploy and source publication; this worker has neither deployed nor committed.
+- Earlier live image `c089e8e8463d4534` and one prepared-Scout/live-analyst proof remain historical. That report assumed repeat Basic purchases; it was not full-council quality validation. The new proxy final marks repurchase permission unconfirmed.
 
 ## Next gates
-1. Live acceptance is complete; retain both attempts, independent audit and ordinary-runtime receipts.
-2. Refresh exact release inventory and redacted history/current-tree/index scans after final docs.
-3. Commit/push to verified default `origin/main` only after root approval; never force. No next-app work yet.
+1. Root reviews source, matrix and browser evidence, then releases exact tested image while preserving current live config/mounts.
+2. Run hosted normal-account free smoke and update release receipts. No unapproved paid request.
+3. Commit/push only through the root-reviewed release flow. Preserve earlier failed/paid records.
 
 ## Decisions
-- 2026-09-30: Approved EC2/Docker + persistent PostgreSQL replaces the old Render/Supabase plan. Database failure is fatal outside explicit local fixtures; anonymous browser IDs cannot own private records.
+- 2026-09-30: Approved EC 2/Docker + persistent PostgreSQL replaces the old Render/Supabase plan. Database failure is fatal outside explicit local fixtures; anonymous browser IDs cannot own private records.
 - 2026-09-30: Password accounts use opaque revocable cookies and signed same-origin CSRF. Preferences are account-scoped; BYOK stays in page memory, replacing global localStorage persistence.
 - 2026-09-30: Three immutable authored examples use the real council scheduler with zero-provider replies. New research in an example conversation is live, clearly stated in the composer.
 - 2026-09-30: Keep the original dynamic stages, expert lens semantics, stop/replay and export paths. No fast-parallel council backlog work.
@@ -24,4 +23,4 @@ last-synced: f43df7ccefb74fffdd1f6354b7cc18cb51afb038
 - Frontend dist stays committed, matching repository convention; Docker also rebuilds from source.
 
 ## Earlier work
-Historical decisions and shipped v1 details: `docs/archive/Handoff-2026-08.md`. Golden-set quality claims there describe August tests, not this launch.
+Historical decisions and shipped v 1 details: `docs/archive/Handoff-2026-08.md`. Golden-set quality claims there describe August tests, not this launch.

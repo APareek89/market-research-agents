@@ -1,3 +1,4 @@
+import {readPreference,writePreference} from '../preferences.js'
 import React, { useEffect, useRef, useState } from 'react'
 import { streamChat, getConversations, getMessages, exportReport, getActiveRuns, attachRun, stopRun, getExamples, startExample } from '../api.js'
 import { Play, Plus, Paperclip, Download, RotateCcw, Square, Send, X } from 'lucide-react'
@@ -12,7 +13,7 @@ const MAX_BYTES = 15 * 1024 * 1024
  * streams keep writing to their own conversation's state via stable keys. */
 export default function ChatTab({ owner, config, agents, customAgents, toggles, setToggles, onRunUpdate, onHistoryRestore }) {
   const conversationKey = storageKey(owner, 'conversation')
-  const [activeConv, setActiveConv] = useState(localStorage.getItem(conversationKey) || 'new')
+  const [activeConv, setActiveConv] = useState(readPreference(conversationKey) || 'new')
   const [examples, setExamples] = useState([])
   const [showExamples, setShowExamples] = useState(true)
   const [exampleBusy, setExampleBusy] = useState('')
@@ -122,7 +123,7 @@ export default function ChatTab({ owner, config, agents, customAgents, toggles, 
   function pickConversation(key) {
     setActiveConv(key)
     setError('')
-    localStorage.setItem(conversationKey, key === 'new' ? '' : key)
+    writePreference(conversationKey, key === 'new' ? '' : key)
   }
 
   function newChat() {
@@ -147,7 +148,7 @@ export default function ChatTab({ owner, config, agents, customAgents, toggles, 
   function stop() {
     // Runs are detached server-side: stopping is an API call, not a fetch abort.
     if (activeConv !== 'new' && !activeConv.startsWith('tmp-')) {
-      stopRun(activeConv).catch(() => {})
+      stopRun(activeConv).catch(e => setError(e.message))
     } else {
       // Real id not known yet — flag it; the 'conversation' event fires the stop.
       stopFlags.current[activeConv] = true
@@ -217,12 +218,12 @@ export default function ChatTab({ owner, config, agents, customAgents, toggles, 
             setRuns((r) => renameKey(r, oldKey, realId))
             setConvos((c) => c.map((x) => (x.id === oldKey ? { ...x, id: realId } : x)))
             setActiveConv((cur) => (cur === oldKey ? realId : cur))
-            if ((localStorage.getItem(conversationKey) || '') === '' || localStorage.getItem(conversationKey) === oldKey) {
-              localStorage.setItem(conversationKey, realId)
+            if ((readPreference(conversationKey) || '') === '' || readPreference(conversationKey) === oldKey) {
+              writePreference(conversationKey, realId)
             }
             if (stopFlags.current[oldKey]) {
               delete stopFlags.current[oldKey]
-              stopRun(realId).catch(() => {})
+              stopRun(realId).catch(e => setError(e.message))
             }
           }
           if (ev.type === 'plan') {

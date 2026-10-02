@@ -1,0 +1,13 @@
+{
+  "status": "passed",
+  "offline_backend_tests": 37,
+  "actual_sdk_graph_postgresql": true,
+  "real_provider_calls": 0,
+  "external_network": "denied",
+  "source": "Executed run_mra_free.py; TextTestRunner output Ran37 tests / OK on 2026-10-02",
+  "not_provider_quality_proof": true,
+  "normal_auth_http_test_groups": 5,
+  "http_result": "Ran5 tests / OK",
+  "frontend_node_tests": 16,
+  "production_build": "passed"
+}

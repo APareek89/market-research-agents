@@ -1,0 +1,23 @@
+{
+  "date": "2026-10-02",
+  "status": "passed_scoped_browser_checks",
+  "operator": "parent/root via in-app browser",
+  "scope": "local candidate; not hosted release",
+  "checks": [
+    "Root inspected the final pricing report at 390px: document width390px, table cells98px, Basic/Growth/Team remain whole words, table overflow scrolls locally.",
+    "Root previously inspected normal-auth report desktop/mobile and Observability stage chain."
+  ],
+  "measurements": {
+    "viewport_width": 390,
+    "document_width": 390,
+    "table_cell_width": 98
+  },
+  "screenshots": [
+    {
+      "path": "/Users/macbook/Documents/Codex/portfolio/_workstreams/portfolio-fmea-20261002/screenshots/market-research-mobile-fixed.png",
+      "sha256": "f83fcc7c6ea1c8af61ed50c68d55a962e0bf97c641535e08d24ab0deef53c3b1"
+    }
+  ],
+  "provider_calls": 0,
+  "limits": "Only named UI scenarios verified; no blanket UI or live-provider acceptance."
+}

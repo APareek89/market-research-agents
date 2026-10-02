@@ -36,6 +36,34 @@ class PersistenceAndProviders(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200,json={'id':'offline-test','object':'chat.completion','created':1,'model':'gpt-5-mini','choices':[{'index':0,'message':{'role':'assistant','content':value},'finish_reason':'stop'}],'usage':{'prompt_tokens':100,'completion_tokens':30,'total_tokens':130,'prompt_tokens_details':{'cached_tokens':20},'completion_tokens_details':{'reasoning_tokens':5}}})
         def factory(**kwargs):return RealOpenAI(**kwargs,http_async_client=httpx.AsyncClient(transport=httpx.MockTransport(handle)))
         return patch.object(llm,'ChatOpenAI',factory)
+    async def test_session_proxy_complete_council_uses_real_sdk_graph_and_durable_history(self):
+        fixture=json.loads((Path(__file__).parent/'fixtures/session-proxy.json').read_text())
+        def answer(body):
+            system=body['messages'][0]['content']
+            user=str(body['messages'][-1]['content'])
+            if 'Your name is Scout' in system:return fixture['intake']
+            if 'Your name is Vera' in system:return fixture['reviewer']
+            if 'Your name is Cleo' in system:return fixture['client']
+            return fixture['revised'] if 'FEEDBACK from' in user else fixture['analyst']
+        cid=await db.ensure_conversation(self.owner,None,'Session proxy council')
+        run=runs.register(cid,self.owner,'live')
+        config={'enable_reviewer':True,'enable_client':True,'settings':{'provider':'openai','api_key':'synthetic-wire-only'}}
+        with self.sdk(content=answer):
+            await runs.execute_run(run,message=fixture['user'],raw_files=[],cfg=config)
+        self.assertEqual(run.status,'done',run.events[-1])
+        self.assertEqual(len(self.wires),6)
+        self.assertTrue(all('api.openai.com' not in str(w.get('messages')) for w in self.wires))
+        self.assertEqual([e['node'] for e in run.events if e['type']=='node_complete'],['intake','analyst','reviewer','revise_reviewer','client','revise_client'])
+        final=run.events[-1]['output'];lines=final.splitlines()
+        self.assertEqual(len(lines),3);self.assertTrue(all(line.startswith('- ') and len(line.split())<=21 for line in lines))
+        self.assertIn('repeat purchases are unconfirmed',final);self.assertNotIn('===DELIVERABLE===',final)
+        restored=await db.get_messages(self.owner,cid)
+        self.assertEqual(restored[-1]['content'],final)
+        self.assertEqual(len(restored[-1]['trace']['steps']),7)
+        self.assertEqual((await db.get_run(self.owner,cid))['status'],'done')
+        self.assertEqual(await db.pool().fetchval("SELECT count(*) FROM mra_usage WHERE run_id=$1 AND status='complete'",db.uid(run.id)),6)
+        with self.assertRaises(db.OwnershipError):await db.get_messages(self.other,cid)
+
     async def test_actual_sdk_wire_single_call_usage_and_owner(self):
         with self.sdk(),execution_scope(self.scope):
             output=await llm.build_llm({'provider':'openai','api_key':'synthetic-wire-only'},'analyst',max_tokens=2048).ainvoke([HumanMessage(content='A synthetic test')])
@@ -49,9 +77,27 @@ class PersistenceAndProviders(unittest.IsolatedAsyncioTestCase):
             await usage.failed(str(row['id']))
             await usage.settle(str(row['id']),'openai','gpt-5-mini',AIMessage(content='foreign',usage_metadata={'input_tokens':1,'output_tokens':1,'total_tokens':2}))
         self.assertEqual(await db.pool().fetchval('SELECT actual_usd FROM mra_usage WHERE id=$1',row['id']),before)
+
+    async def test_empty_sdk_text_and_empty_extracted_deliverable_never_save_success(self):
+        for invalid in [' \n ', '===DELIVERABLE===\n \n===END DELIVERABLE===']:
+            with self.subTest(invalid=invalid):
+                self.wires.clear()
+                cid=await db.ensure_conversation(self.owner,None,'Empty result regression')
+                run=runs.register(cid,self.owner,'live')
+                def answer(body):return 'Valid synthetic research brief.' if 'Your name is Scout' in body['messages'][0]['content'] else invalid
+                config={'enable_reviewer':False,'enable_client':False,'settings':{'provider':'openai','api_key':'synthetic-wire-only'}}
+                with self.sdk(content=answer):await runs.execute_run(run,message='Return a report from supplied facts only.',raw_files=[],cfg=config)
+                self.assertEqual(run.status,'error');self.assertEqual(len(self.wires),2)
+                self.assertEqual([m['role'] for m in await db.get_messages(self.owner,cid)],['user'])
+                self.assertEqual((await db.get_run(self.owner,cid))['status'],'error')
+                self.assertEqual(await db.pool().fetchval("SELECT count(*) FROM mra_usage WHERE run_id=$1 AND status='complete'",db.uid(run.id)),2)
+                self.assertFalse(any(event['type']=='final' for event in run.events))
     async def test_no_sdk_retries_and_unknown_spend_kept(self):
-        with self.sdk(429),execution_scope(self.scope):
+        with self.sdk(429),execution_scope(self.scope),patch('app.llm.logging') as log:
             with self.assertRaises(Exception):await llm.build_llm({'provider':'openai','api_key':'synthetic-wire-only'}).ainvoke([HumanMessage(content='test')])
+            diagnostic=json.loads(log.getLogger.return_value.warning.call_args.args[0])
+            self.assertEqual(diagnostic,{'event':'provider_failure','provider':'openai','model':'gpt-5-mini','request_id':self.scope.run_id,'upstream_status':429,'category':'provider_rejected'})
+            self.assertNotIn('synthetic failure',str(diagnostic));self.assertNotIn('synthetic-wire-only',str(diagnostic))
         self.assertEqual(len(self.wires),1)
         self.assertEqual(await db.pool().fetchval('SELECT status FROM mra_usage WHERE run_id=$1',db.uid(self.scope.run_id)),'uncertain')
     async def test_structured_parse_failure_preserves_known_usage(self):

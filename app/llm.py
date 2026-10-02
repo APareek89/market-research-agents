@@ -1,6 +1,8 @@
 """One provider factory for council, prompt synthesis and expert lenses."""
 import asyncio
 import os
+import logging
+import json
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 from .prompts import CLAUDE_MODELS,OPENAI_MODELS,DEFAULT_MODEL
@@ -14,6 +16,29 @@ DEFAULT_AGENT_MODELS={'intake':'claude-haiku-4-5','analyst':'claude-sonnet-5','r
 _DISPATCH=asyncio.Semaphore(2)
 
 class ConfigError(Exception):pass
+
+def validate_completion(response, provider):
+    """A bounded response may contain text but still be incomplete or refused.
+    Check the terminal provider status after usage settlement, before any
+    report or tool execution can treat that text as a successful answer.
+    """
+    metadata=getattr(response,'response_metadata',None) or {}
+    reason=metadata.get('stop_reason') if provider=='claude' else metadata.get('finish_reason')
+    allowed={'end_turn','tool_use','stop_sequence'} if provider=='claude' else {'stop','tool_calls'}
+    if reason not in allowed:
+        raise ConfigError('The model response was incomplete or refused. Known usage is retained; no automatic retry was made.')
+    if (getattr(response,'additional_kwargs',None) or {}).get('refusal'):
+        raise ConfigError('The model refused this request. Known usage is retained; no automatic retry was made.')
+    if getattr(response,'invalid_tool_calls',None):
+        raise ConfigError('The model returned an invalid tool request. Known usage is retained; no automatic retry was made.')
+    if reason in {'tool_use','tool_calls'} and not getattr(response,'tool_calls',None):
+        raise ConfigError('The model returned an empty tool request. Known usage is retained; no automatic retry was made.')
+    calls=getattr(response,'tool_calls',None) or []
+    valid_tools=bool(calls) and all(isinstance(call,dict) and isinstance(call.get('name'),str) and call['name'].strip() and isinstance(call.get('args'),dict) and isinstance(call.get('id'),str) and call['id'].strip() for call in calls)
+    content=getattr(response,'content',None)
+    text=content if isinstance(content,str) else '\n'.join(block if isinstance(block,str) else block.get('text','') for block in (content if isinstance(content,list) else []) if isinstance(block,str) or isinstance(block,dict) and block.get('type')=='text' and isinstance(block.get('text'),str))
+    if calls and not valid_tools or not text.strip() and not valid_tools:
+        raise ConfigError('The model returned no usable answer. Known usage is retained; no automatic retry was made.')
 
 def default_provider():return os.getenv('MRA_DEFAULT_PROVIDER','openai')
 def default_model():return os.getenv('MRA_DEFAULT_MODEL','gpt-5-mini')
@@ -45,12 +70,17 @@ class MeteredModel:
                 result=await self.model.ainvoke(messages)
                 raw=result.get('raw') if self.structured else result
                 await usage.settle(reservation,self.provider,self.name,raw)
+                validate_completion(raw,self.provider)
                 if self.structured:
                     if result.get('parsing_error') or result.get('parsed') is None:
                         raise ConfigError('The model returned an invalid structured response')
                     return result['parsed']
                 return result
-            except BaseException:
+            except BaseException as error:
+                status=getattr(error,'status_code',None)
+                status=status if type(status) is int and 400<=status<=599 else None
+                # No prompt, key, upstream body, message or stack enters telemetry.
+                logging.getLogger(__name__).warning(json.dumps({'event':'provider_failure','provider':self.provider,'model':self.name if self.name in OPENAI_MODELS+CLAUDE_MODELS+HF_MODELS else 'custom','request_id':current_execution().run_id,'upstream_status':status,'category':'provider_rejected' if status else 'transport_or_response_failure'}))
                 await asyncio.shield(usage.failed(reservation))
                 raise
 

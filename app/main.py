@@ -133,10 +133,15 @@ def validate_config(raw):
     if not isinstance(cfg,dict):raise ValueError('Configuration must be an object')
     agents=cfg.get('agents') or {};custom=cfg.get('custom_agents') or [];settings=cfg.get('settings') or {}
     if not isinstance(agents,dict) or not isinstance(custom,list) or len(custom)>3 or not isinstance(settings,dict):raise ValueError('Invalid agent configuration')
+    for flag in ('enable_reviewer','enable_client'):
+        if flag in cfg and type(cfg[flag]) is not bool:raise ValueError('Review switches must be true or false')
     for agent in [*agents.values(),*custom]:
         if not isinstance(agent,dict):raise ValueError('Invalid agent configuration')
         for field,cap in [('name',80),('system_prompt',12000),('model',160)]:
             if field in agent and (not isinstance(agent[field],str) or len(agent[field])>cap):raise ValueError('Agent field is too large')
+        for flag in ('enabled','expert_mode'):
+            if flag in agent and type(agent[flag]) is not bool:raise ValueError('Agent switches must be true or false')
+        if 'mode' in agent and agent['mode'] not in ('reviewer','transformer'):raise ValueError('Invalid custom stage mode')
     ids=[str(c.get('id','')) for c in custom]
     if len(set(ids))!=len(ids) or any(not re.fullmatch(r'[A-Za-z0-9_-]{1,64}',i) or i in {'reviewer','client','intake','analyst'} for i in ids):raise ValueError('Custom agent IDs must be unique')
     order=cfg.get('stage_order') or []
