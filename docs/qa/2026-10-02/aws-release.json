@@ -1,0 +1,19 @@
+{
+  "status": "image_only_update_verified",
+  "app": "market-research",
+  "image": "sha256:2a4d5450b211867659037073ed2e0c0043c6da79ea99aa8a87ac417a16b50f7e",
+  "image_id": "sha256:2a4d5450b211867659037073ed2e0c0043c6da79ea99aa8a87ac417a16b50f7e",
+  "previous_image_id": "sha256:9ff0e24acfe684a14440aedbca988a2fb86ad7fbe900504816f8886dfb989be9",
+  "config_before_sha256": "4adb6678ecd0764ac895ed0149179ef5068ee5cbf65fd0704f6753d8033d4768",
+  "config_after_sha256": "211c0e0360a0f3145587b87d914a8adfa5d2b5566673c6c3cef6446cfbd955b0",
+  "source_sha256": "3c12cc2eb5a0a8b7cb3f786b46ddf9ae5c5e3aeeb3433bcecd5936c90a71fa60",
+  "config_preserved_except_image": true,
+  "environment_identical": true,
+  "mounts_identical": true,
+  "bounds_identical": true,
+  "other_apps_unchanged": true,
+  "auth": true,
+  "mock": false,
+  "provider_calls": 0,
+  "generated_at": "2026-10-02T08:49:58.234373+00:00"
+}
